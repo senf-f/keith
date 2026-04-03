@@ -2,6 +2,9 @@
 
 A CLI tool for writing and organizing books. Named after G.K. Chesterton.
 
+> "A good novel tells us the truth about its hero; but a bad novel tells us the truth about its author."
+> — G.K. Chesterton
+
 ## Features
 
 - **Interactive REPL** with command autocomplete and history
