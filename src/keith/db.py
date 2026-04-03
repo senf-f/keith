@@ -6,7 +6,7 @@ from keith.models import Book, Chapter
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 class Database:
@@ -119,3 +119,92 @@ class Database:
     def delete_book(self, book_id: int) -> None:
         self.conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
         self.conn.commit()
+
+    # -- Chapter CRUD --
+
+    def create_chapter(self, book_id: int, title: str, content: str) -> Chapter:
+        now = _now()
+        row = self.conn.execute(
+            "SELECT COALESCE(MAX(position), 0) FROM chapters WHERE book_id = ?",
+            (book_id,),
+        ).fetchone()
+        position = row[0] + 1
+        cursor = self.conn.execute(
+            "INSERT INTO chapters (book_id, title, content, position, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (book_id, title, content, position, now, now),
+        )
+        self.conn.commit()
+        return Chapter(
+            id=cursor.lastrowid, book_id=book_id, title=title,
+            content=content, position=position, created_at=now, updated_at=now,
+        )
+
+    def list_chapters(self, book_id: int) -> list[Chapter]:
+        rows = self.conn.execute(
+            "SELECT id, book_id, title, content, position, created_at, updated_at "
+            "FROM chapters WHERE book_id = ? ORDER BY position",
+            (book_id,),
+        ).fetchall()
+        return [Chapter(id=r[0], book_id=r[1], title=r[2], content=r[3],
+                        position=r[4], created_at=r[5], updated_at=r[6]) for r in rows]
+
+    def get_chapter(self, chapter_id: int) -> Chapter | None:
+        row = self.conn.execute(
+            "SELECT id, book_id, title, content, position, created_at, updated_at "
+            "FROM chapters WHERE id = ?",
+            (chapter_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Chapter(id=row[0], book_id=row[1], title=row[2], content=row[3],
+                       position=row[4], created_at=row[5], updated_at=row[6])
+
+    def update_chapter(self, chapter_id: int, title: str | None = None, content: str | None = None) -> None:
+        now = _now()
+        chapter = self.get_chapter(chapter_id)
+        if chapter is None:
+            return
+        new_title = title if title is not None else chapter.title
+        new_content = content if content is not None else chapter.content
+        self.conn.execute(
+            "UPDATE chapters SET title = ?, content = ?, updated_at = ? WHERE id = ?",
+            (new_title, new_content, now, chapter_id),
+        )
+        self.conn.commit()
+
+    def move_chapter(self, chapter_id: int, new_position: int) -> None:
+        chapter = self.get_chapter(chapter_id)
+        if chapter is None:
+            return
+        old_position = chapter.position
+        book_id = chapter.book_id
+        if new_position == old_position:
+            return
+        if new_position < old_position:
+            self.conn.execute(
+                "UPDATE chapters SET position = position + 1 "
+                "WHERE book_id = ? AND position >= ? AND position < ?",
+                (book_id, new_position, old_position),
+            )
+        else:
+            self.conn.execute(
+                "UPDATE chapters SET position = position - 1 "
+                "WHERE book_id = ? AND position > ? AND position <= ?",
+                (book_id, old_position, new_position),
+            )
+        self.conn.execute(
+            "UPDATE chapters SET position = ? WHERE id = ?",
+            (new_position, chapter_id),
+        )
+        self.conn.commit()
+
+    def delete_chapter(self, chapter_id: int) -> None:
+        self.conn.execute("DELETE FROM chapters WHERE id = ?", (chapter_id,))
+        self.conn.commit()
+
+    def chapter_count(self, book_id: int) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM chapters WHERE book_id = ?", (book_id,),
+        ).fetchone()
+        return row[0]
