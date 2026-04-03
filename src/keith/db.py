@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from keith.models import Book, Chapter
+from keith.models import Book, Chapter, SearchResult
 
 
 def _now() -> str:
@@ -208,3 +208,54 @@ class Database:
             "SELECT COUNT(*) FROM chapters WHERE book_id = ?", (book_id,),
         ).fetchone()
         return row[0]
+
+    # -- Search --
+
+    def search(
+        self,
+        query: str,
+        title_only: bool = False,
+        book_id: int | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[SearchResult]:
+        if title_only:
+            fts_query = f'chapter_title:{query}'
+        else:
+            fts_query = query
+
+        sql = """
+            SELECT
+                c.book_id,
+                b.title,
+                c.id,
+                c.title,
+                snippet(fts_chapters, 2, '>>>', '<<<', '...', 32),
+                c.created_at
+            FROM fts_chapters fts
+            JOIN chapters c ON c.id = fts.rowid
+            JOIN books b ON b.id = c.book_id
+            WHERE fts_chapters MATCH ?
+        """
+        params: list = [fts_query]
+
+        if book_id is not None:
+            sql += " AND c.book_id = ?"
+            params.append(book_id)
+        if date_from is not None:
+            sql += " AND c.created_at >= ?"
+            params.append(date_from)
+        if date_to is not None:
+            sql += " AND c.created_at <= ?"
+            params.append(date_to)
+
+        sql += " ORDER BY rank"
+
+        rows = self.conn.execute(sql, params).fetchall()
+        return [
+            SearchResult(
+                book_id=r[0], book_title=r[1], chapter_id=r[2],
+                chapter_title=r[3], snippet=r[4], created_at=r[5],
+            )
+            for r in rows
+        ]
