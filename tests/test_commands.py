@@ -106,3 +106,61 @@ def test_search(handler, capsys):
     handler.handle_search("sun")
     out = capsys.readouterr().out
     assert "Dawn" in out
+
+
+def test_stats_no_active_book(handler, capsys):
+    handler.stats()
+    out = capsys.readouterr().out
+    assert "No book selected" in out
+
+
+def test_stats_no_chapters(handler, capsys):
+    book = handler.db.create_book("Empty Book")
+    handler.active_book = book
+    handler.stats()
+    out = capsys.readouterr().out
+    assert "No chapters yet." in out
+
+
+def test_stats_multiple_chapters(handler, capsys):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    handler.db.create_chapter(book.id, "Ch 1", "one two three four five")
+    handler.db.create_chapter(book.id, "Ch 2", "one two three")
+    handler.db.create_chapter(book.id, "Ch 3", "one two")
+    handler.stats()
+    out = capsys.readouterr().out
+    assert "Ch 1" in out
+    assert "5 words" in out
+    assert "(50%)" in out
+    assert "Ch 2" in out
+    assert "3 words" in out
+    assert "(30%)" in out
+    assert "Ch 3" in out
+    assert "2 words" in out
+    assert "(20%)" in out
+    assert "10 words" in out
+
+
+def test_stats_empty_content(handler, capsys):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    handler.db.create_chapter(book.id, "Empty Chapter", "")
+    handler.db.create_chapter(book.id, "Has Words", "hello world")
+    handler.stats()
+    out = capsys.readouterr().out
+    assert "0 words" in out
+    assert "2 words" in out
+    assert "(0%)" in out
+    assert "(100%)" in out
+
+
+def test_stats_single_chapter(handler, capsys):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    handler.db.create_chapter(book.id, "Only Chapter", "word word word")
+    handler.stats()
+    out = capsys.readouterr().out
+    assert "Only Chapter" in out
+    assert "3 words" in out
+    assert "(100%)" in out
