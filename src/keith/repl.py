@@ -12,7 +12,7 @@ COMMANDS = [
     "book new", "book list", "book select", "book info", "book delete",
     "add chapter", "list chapters", "edit chapter", "show chapter",
     "move chapter", "delete chapter",
-    "search", "export", "help", "exit", "quit",
+    "search", "export", "stats", "help", "exit", "quit",
 ]
 
 HELP_TEXT = """
@@ -39,6 +39,7 @@ HELP_TEXT = """
 
   Other:
     export          Export active book to markdown
+    stats           Show word count per chapter
     help            Show this help
     exit / quit     Leave keith
 """.strip()
@@ -107,6 +108,8 @@ def run_repl() -> None:
             print("Usage: search [--title] [--book <id>] [--from <date>] [--to <date>] <query>")
         elif text == "export":
             handler.export()
+        elif text == "stats":
+            handler.stats()
         else:
             print(f"Unknown command: {text}. Type 'help' for available commands.")
 
