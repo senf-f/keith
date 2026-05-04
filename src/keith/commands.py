@@ -7,6 +7,10 @@ from keith.export import export_book_to_markdown, slugify
 from keith.models import Book
 
 
+def word_count(text: str) -> int:
+    return len(text.split())
+
+
 class CommandHandler:
     def __init__(self, db: Database):
         self.db = db
@@ -269,3 +273,25 @@ class CommandHandler:
         with open(filename, "w", encoding="utf-8") as f:
             f.write(md)
         print(f"Exported to {filename}")
+
+    # -- Stats --
+
+    def stats(self) -> None:
+        if not self._require_active_book():
+            return
+        chapters = self.db.list_chapters(self.active_book.id)
+        if not chapters:
+            print("No chapters yet.")
+            return
+
+        counts = [(ch.title, word_count(ch.content)) for ch in chapters]
+        total = sum(c for _, c in counts)
+
+        title_width = max(len(title) for title, _ in counts)
+        for i, (title, count) in enumerate(counts, 1):
+            pct = round(count / total * 100) if total > 0 else 0
+            print(f"  {i}. {title:<{title_width}}  {count:,} words  ({pct}%)")
+
+        separator_width = title_width + 30
+        print(f"  {'─' * separator_width}")
+        print(f"  {'Total':<{title_width + 3}} {total:,} words")
