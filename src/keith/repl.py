@@ -12,6 +12,7 @@ COMMANDS = [
     "book new", "book list", "book select", "book info", "book delete",
     "add chapter", "list chapters", "edit chapter", "show chapter",
     "move chapter", "delete chapter",
+    "note new", "note list", "note show", "note edit", "note delete",
     "search", "export", "stats", "help", "exit", "quit",
 ]
 
@@ -30,6 +31,14 @@ HELP_TEXT = """
     show chapter    Display a chapter
     move chapter    Reorder a chapter
     delete chapter  Delete a chapter
+
+  Note commands (requires active book; notes are never exported):
+    note new            Add a note (idea/outline/character/place/other)
+    note list           List notes grouped by category
+    note list <cat>     List notes in one category
+    note show           Display a note
+    note edit           Edit a note in $EDITOR
+    note delete         Delete a note
 
   Search:
     search <query>              Full-text search
@@ -102,6 +111,18 @@ def run_repl() -> None:
             handler.move_chapter()
         elif text == "delete chapter":
             handler.delete_chapter()
+        elif text == "note new":
+            handler.note_new()
+        elif text == "note list":
+            handler.note_list("")
+        elif text.startswith("note list "):
+            handler.note_list(text[len("note list "):])
+        elif text == "note show":
+            handler.note_show()
+        elif text == "note edit":
+            handler.note_edit()
+        elif text == "note delete":
+            handler.note_delete()
         elif text.startswith("search "):
             handler.handle_search(text[7:])
         elif text == "search":

@@ -164,3 +164,132 @@ def test_stats_single_chapter(handler, capsys):
     assert "Only Chapter" in out
     assert "3 words" in out
     assert "(100%)" in out
+
+
+# -- Note commands --
+
+
+def test_note_new_no_active_book(handler, capsys):
+    handler.note_new()
+    out = capsys.readouterr().out
+    assert "No book selected" in out
+
+
+def test_note_new(handler):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    with patch("builtins.input", return_value="character"):
+        with patch("keith.commands.open_editor", return_value="Gandalf\nGrey wizard"):
+            handler.note_new()
+    notes = handler.db.list_notes(book.id)
+    assert len(notes) == 1
+    assert notes[0].category == "character"
+    assert notes[0].content == "Gandalf\nGrey wizard"
+
+
+def test_note_new_invalid_category(handler, capsys):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    with patch("builtins.input", return_value="banana"):
+        handler.note_new()
+    out = capsys.readouterr().out
+    assert "Unknown category" in out
+    assert len(handler.db.list_notes(book.id)) == 0
+
+
+def test_note_new_empty_body_declined(handler):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    with patch("builtins.input", side_effect=["idea", "n"]):
+        with patch("keith.commands.open_editor", return_value="   "):
+            handler.note_new()
+    assert len(handler.db.list_notes(book.id)) == 0
+
+
+def test_note_list_empty(handler, capsys):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    handler.note_list("")
+    out = capsys.readouterr().out
+    assert "No notes yet." in out
+
+
+def test_note_list_groups_by_category(handler, capsys):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    handler.db.create_note(book.id, "idea", "Twist ending")
+    handler.db.create_note(book.id, "character", "Gandalf the grey")
+    handler.note_list("")
+    out = capsys.readouterr().out
+    assert "idea" in out
+    assert "Twist ending" in out
+    assert "character" in out
+    assert "Gandalf the grey" in out
+
+
+def test_note_list_filter_by_category(handler, capsys):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    handler.db.create_note(book.id, "idea", "Twist ending")
+    handler.db.create_note(book.id, "character", "Gandalf")
+    handler.note_list("character")
+    out = capsys.readouterr().out
+    assert "Gandalf" in out
+    assert "Twist ending" not in out
+
+
+def test_note_list_filter_no_matches(handler, capsys):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    handler.db.create_note(book.id, "idea", "Twist ending")
+    handler.note_list("place")
+    out = capsys.readouterr().out
+    assert "No notes in 'place'." in out
+
+
+def test_note_show(handler, capsys):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    handler.db.create_note(book.id, "place", "The Shire\nGreen and pleasant")
+    with patch("builtins.input", return_value="1"):
+        handler.note_show()
+    out = capsys.readouterr().out
+    assert "Green and pleasant" in out
+
+
+def test_note_edit(handler):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    note = handler.db.create_note(book.id, "idea", "Old idea")
+    with patch("builtins.input", return_value="1"):
+        with patch("keith.commands.open_editor", return_value="New idea"):
+            handler.note_edit()
+    assert handler.db.get_note(note.id).content == "New idea"
+
+
+def test_note_delete(handler):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    note = handler.db.create_note(book.id, "idea", "Disposable")
+    with patch("builtins.input", side_effect=["1", "y"]):
+        handler.note_delete()
+    assert handler.db.get_note(note.id) is None
+
+
+def test_note_delete_cancelled(handler):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    note = handler.db.create_note(book.id, "idea", "Keep me")
+    with patch("builtins.input", side_effect=["1", "n"]):
+        handler.note_delete()
+    assert handler.db.get_note(note.id) is not None
+
+
+def test_search_prints_note_marker(handler, capsys):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    handler.db.create_note(book.id, "character", "Gandalf the grey wizard")
+    handler.handle_search("Gandalf")
+    out = capsys.readouterr().out
+    assert "note:character" in out
+    assert "Gandalf the grey wizard" in out

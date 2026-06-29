@@ -66,3 +66,48 @@ def test_search_filter_by_date(populated_db):
     assert len(results) == 1
     results = populated_db.search("park", date_from="2099-01-01")
     assert len(results) == 0
+
+
+def test_search_finds_notes(populated_db):
+    books = populated_db.list_books()
+    book_id = [b for b in books if b.title == "Orthodoxy"][0].id
+    populated_db.create_note(book_id, "character", "Gandalf the grey wizard")
+    results = populated_db.search("Gandalf")
+    assert len(results) == 1
+    assert results[0].kind == "note"
+    assert results[0].category == "character"
+    assert results[0].chapter_title == "Gandalf the grey wizard"
+
+
+def test_search_marks_chapters_as_chapter_kind(populated_db):
+    results = populated_db.search("park")
+    assert results[0].kind == "chapter"
+    assert results[0].category is None
+
+
+def test_search_returns_chapters_before_notes(populated_db):
+    books = populated_db.list_books()
+    book_id = books[0].id
+    populated_db.create_note(book_id, "idea", "A clever park scheme")
+    results = populated_db.search("park")
+    kinds = [r.kind for r in results]
+    assert kinds == ["chapter", "note"]
+
+
+def test_search_title_only_skips_notes(populated_db):
+    books = populated_db.list_books()
+    book_id = books[0].id
+    populated_db.create_note(book_id, "character", "Syme the detective")
+    results = populated_db.search("Syme", title_only=True)
+    assert all(r.kind == "chapter" for r in results)
+
+
+def test_search_notes_filter_by_book(populated_db):
+    books = populated_db.list_books()
+    orthodoxy_id = [b for b in books if b.title == "Orthodoxy"][0].id
+    thursday_id = [b for b in books if b.title == "The Man Who Was Thursday"][0].id
+    populated_db.create_note(orthodoxy_id, "idea", "unique_marker_word")
+    populated_db.create_note(thursday_id, "idea", "unique_marker_word")
+    results = populated_db.search("unique_marker_word", book_id=orthodoxy_id)
+    assert len(results) == 1
+    assert results[0].book_id == orthodoxy_id

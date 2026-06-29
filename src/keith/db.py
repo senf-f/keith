@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from keith.models import Book, Chapter, SearchResult
+from keith.models import Book, Chapter, Note, SearchResult
 
 
 def _now() -> str:
@@ -45,6 +45,22 @@ class Database:
                 content,
                 content_rowid=id
             );
+
+            CREATE TABLE IF NOT EXISTS notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                category TEXT NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS fts_notes USING fts5(
+                book_title,
+                category,
+                content,
+                content_rowid=id
+            );
         """)
         self._create_triggers()
         self.conn.commit()
@@ -84,6 +100,39 @@ class Database:
                 CREATE TRIGGER fts_chapters_delete AFTER DELETE ON chapters
                 BEGIN
                     DELETE FROM fts_chapters WHERE rowid = OLD.id;
+                END;
+            """)
+
+        if "fts_notes_insert" not in existing:
+            self.conn.execute("""
+                CREATE TRIGGER fts_notes_insert AFTER INSERT ON notes
+                BEGIN
+                    INSERT INTO fts_notes(rowid, book_title, category, content)
+                    SELECT NEW.id,
+                           (SELECT title FROM books WHERE id = NEW.book_id),
+                           NEW.category,
+                           NEW.content;
+                END;
+            """)
+
+        if "fts_notes_update" not in existing:
+            self.conn.execute("""
+                CREATE TRIGGER fts_notes_update AFTER UPDATE ON notes
+                BEGIN
+                    DELETE FROM fts_notes WHERE rowid = OLD.id;
+                    INSERT INTO fts_notes(rowid, book_title, category, content)
+                    SELECT NEW.id,
+                           (SELECT title FROM books WHERE id = NEW.book_id),
+                           NEW.category,
+                           NEW.content;
+                END;
+            """)
+
+        if "fts_notes_delete" not in existing:
+            self.conn.execute("""
+                CREATE TRIGGER fts_notes_delete AFTER DELETE ON notes
+                BEGIN
+                    DELETE FROM fts_notes WHERE rowid = OLD.id;
                 END;
             """)
 
@@ -209,6 +258,63 @@ class Database:
         ).fetchone()
         return row[0]
 
+    # -- Note CRUD --
+
+    def create_note(self, book_id: int, category: str, content: str) -> Note:
+        now = _now()
+        cursor = self.conn.execute(
+            "INSERT INTO notes (book_id, category, content, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (book_id, category, content, now, now),
+        )
+        self.conn.commit()
+        return Note(
+            id=cursor.lastrowid, book_id=book_id, category=category,
+            content=content, created_at=now, updated_at=now,
+        )
+
+    def list_notes(self, book_id: int, category: str | None = None) -> list[Note]:
+        sql = (
+            "SELECT id, book_id, category, content, created_at, updated_at "
+            "FROM notes WHERE book_id = ?"
+        )
+        params: list = [book_id]
+        if category is not None:
+            sql += " AND category = ?"
+            params.append(category)
+        sql += " ORDER BY id"
+        rows = self.conn.execute(sql, params).fetchall()
+        return [Note(id=r[0], book_id=r[1], category=r[2], content=r[3],
+                     created_at=r[4], updated_at=r[5]) for r in rows]
+
+    def get_note(self, note_id: int) -> Note | None:
+        row = self.conn.execute(
+            "SELECT id, book_id, category, content, created_at, updated_at "
+            "FROM notes WHERE id = ?",
+            (note_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Note(id=row[0], book_id=row[1], category=row[2], content=row[3],
+                    created_at=row[4], updated_at=row[5])
+
+    def update_note(self, note_id: int, category: str | None = None, content: str | None = None) -> None:
+        now = _now()
+        note = self.get_note(note_id)
+        if note is None:
+            return
+        new_category = category if category is not None else note.category
+        new_content = content if content is not None else note.content
+        self.conn.execute(
+            "UPDATE notes SET category = ?, content = ?, updated_at = ? WHERE id = ?",
+            (new_category, new_content, now, note_id),
+        )
+        self.conn.commit()
+
+    def delete_note(self, note_id: int) -> None:
+        self.conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+        self.conn.commit()
+
     # -- Search --
 
     def search(
@@ -252,10 +358,63 @@ class Database:
         sql += " ORDER BY rank"
 
         rows = self.conn.execute(sql, params).fetchall()
-        return [
+        results = [
             SearchResult(
                 book_id=r[0], book_title=r[1], chapter_id=r[2],
                 chapter_title=r[3], snippet=r[4], created_at=r[5],
+                kind="chapter", category=None,
+            )
+            for r in rows
+        ]
+
+        if title_only:
+            return results
+
+        results.extend(self._search_notes(query, book_id, date_from, date_to))
+        return results
+
+    def _search_notes(
+        self,
+        query: str,
+        book_id: int | None,
+        date_from: str | None,
+        date_to: str | None,
+    ) -> list[SearchResult]:
+        sql = """
+            SELECT
+                n.book_id,
+                b.title,
+                n.id,
+                n.content,
+                n.category,
+                snippet(fts_notes, 2, '>>>', '<<<', '...', 32),
+                n.created_at
+            FROM fts_notes fts
+            JOIN notes n ON n.id = fts.rowid
+            JOIN books b ON b.id = n.book_id
+            WHERE fts_notes MATCH ?
+        """
+        params: list = [query]
+
+        if book_id is not None:
+            sql += " AND n.book_id = ?"
+            params.append(book_id)
+        if date_from is not None:
+            sql += " AND n.created_at >= ?"
+            params.append(date_from)
+        if date_to is not None:
+            sql += " AND n.created_at <= ?"
+            params.append(date_to)
+
+        sql += " ORDER BY rank"
+
+        rows = self.conn.execute(sql, params).fetchall()
+        return [
+            SearchResult(
+                book_id=r[0], book_title=r[1], chapter_id=r[2],
+                chapter_title=Note(r[2], r[0], r[4], r[3], "", "").label,
+                snippet=r[5], created_at=r[6],
+                kind="note", category=r[4],
             )
             for r in rows
         ]

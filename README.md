@@ -10,6 +10,7 @@ A CLI tool for writing and organizing books. Named after G.K. Chesterton.
 - **Interactive REPL** with command autocomplete and history
 - **Multiple books** in a single library
 - **Chapter management** with ordering, editing via `$EDITOR`, and display
+- **Notes** per book (ideas, outline, characters, places) — searchable but never exported
 - **Full-text search** across all books (titles and content) with date range filters
 - **Markdown export** with table of contents
 - **Cross-platform** — works on Bash and PowerShell
@@ -77,6 +78,12 @@ uv run keith export <id>   # Export a book to markdown
 | `show chapter` | Display a chapter in the terminal |
 | `move chapter` | Reorder a chapter |
 | `delete chapter` | Delete a chapter |
+| `note new` | Add a note (idea/outline/character/place/other) |
+| `note list` | List notes grouped by category |
+| `note list <category>` | List notes in one category |
+| `note show` | Display a note |
+| `note edit` | Edit a note in `$EDITOR` |
+| `note delete` | Delete a note |
 | `search <query>` | Full-text search across all books |
 | `search --title <query>` | Search titles only |
 | `search --book <id> <query>` | Search within a specific book |

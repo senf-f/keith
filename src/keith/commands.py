@@ -7,6 +7,9 @@ from keith.export import export_book_to_markdown, slugify
 from keith.models import Book
 
 
+VALID_CATEGORIES = ("idea", "outline", "character", "place", "other")
+
+
 def word_count(text: str) -> int:
     return len(text.split())
 
@@ -209,6 +212,95 @@ class CommandHandler:
         except ValueError:
             print("Invalid input.")
 
+    # -- Note commands --
+
+    def _select_note(self, prompt: str):
+        notes = self.db.list_notes(self.active_book.id)
+        if not notes:
+            print("No notes.")
+            return None
+        for i, note in enumerate(notes, 1):
+            print(f"  {i}. [{note.category}] {note.label}")
+        choice = input(prompt).strip()
+        try:
+            idx = int(choice) - 1
+        except ValueError:
+            print("Invalid input.")
+            return None
+        if 0 <= idx < len(notes):
+            return notes[idx]
+        print("Invalid selection.")
+        return None
+
+    def note_new(self) -> None:
+        if not self._require_active_book():
+            return
+        category = input(f"Category ({'/'.join(VALID_CATEGORIES)}): ").strip().lower()
+        if category not in VALID_CATEGORIES:
+            print(f"Unknown category. Choose one of: {', '.join(VALID_CATEGORIES)}.")
+            return
+        content = open_editor()
+        if content is None:
+            print("Editor failed. Note not created.")
+            return
+        if not content.strip():
+            confirm = input("Note is empty. Save anyway? (y/n): ").strip().lower()
+            if confirm != "y":
+                print("Discarded.")
+                return
+        self.db.create_note(self.active_book.id, category, content)
+        print(f"Added {category} note.")
+
+    def note_list(self, args_str: str) -> None:
+        if not self._require_active_book():
+            return
+        category = args_str.strip().lower() or None
+        notes = self.db.list_notes(self.active_book.id, category=category)
+        if not notes:
+            if category:
+                print(f"No notes in '{category}'.")
+            else:
+                print("No notes yet.")
+            return
+        for i, note in enumerate(notes, 1):
+            print(f"  {i}. [{note.category}] {note.label}")
+
+    def note_show(self) -> None:
+        if not self._require_active_book():
+            return
+        note = self._select_note("Select note number: ")
+        if note is None:
+            return
+        print(f"\n--- [{note.category}] {note.label} ---\n")
+        print(note.content)
+        print(f"\n--- end ---\n")
+
+    def note_edit(self) -> None:
+        if not self._require_active_book():
+            return
+        note = self._select_note("Select note number: ")
+        if note is None:
+            return
+        content = open_editor(initial_content=note.content)
+        if content is not None:
+            self.db.update_note(note.id, content=content)
+            print("Note updated.")
+        else:
+            print("Editor failed. No changes saved.")
+
+    def note_delete(self) -> None:
+        if not self._require_active_book():
+            return
+        note = self._select_note("Delete which note? (number): ")
+        if note is None:
+            return
+        confirm = input(f"Delete [{note.category}] {note.label}? (y/n): ").strip().lower()
+        if confirm == "y":
+            self.db.delete_note(note.id)
+            print("Note deleted.")
+        else:
+            print("Cancelled.")
+
     # -- Search --
 
     def handle_search(self, args_str: str) -> None:
@@ -252,7 +344,10 @@ class CommandHandler:
             print("No results found.")
             return
         for r in results:
-            print(f"  [{r.book_title}] {r.chapter_title} ({r.created_at[:10]})")
+            if r.kind == "note":
+                print(f"  [{r.book_title}/note:{r.category}] {r.chapter_title}")
+            else:
+                print(f"  [{r.book_title}] {r.chapter_title} ({r.created_at[:10]})")
             print(f"    {r.snippet}")
             print()
 

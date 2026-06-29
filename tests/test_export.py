@@ -47,6 +47,19 @@ def test_export_empty_book(db):
     assert "## Table of Contents" in md
 
 
+def test_export_excludes_notes(db):
+    book = db.create_book("Test Book")
+    db.create_chapter(book.id, "First Chapter", "Real chapter content.")
+    db.create_note(book.id, "character", "SECRET_NOTE_MARKER Gandalf")
+    db.create_note(book.id, "idea", "ANOTHER_SECRET twist ending")
+
+    md = export_book_to_markdown(db, book.id)
+
+    assert "Real chapter content." in md
+    assert "SECRET_NOTE_MARKER" not in md
+    assert "ANOTHER_SECRET" not in md
+
+
 def test_export_preserves_chapter_order(db):
     book = db.create_book("Ordered")
     db.create_chapter(book.id, "Ch A", "A")
