@@ -50,6 +50,43 @@ Toni Morrison:
     then you must write it."
   - The real work happens in the rewrite.
 
+G.K. Chesterton (in the spirit of):
+  - Make the ordinary strange again; wonder is the writer's first tool.
+  - A paradox is truth standing on its head to get attention — use it, then land it.
+  - Defend your idea with wit, not volume; a good joke can carry a whole argument.
+  - The fairy tale is truer than the newspaper: dragons matter because they can be beaten.
+
+J.R.R. Tolkien (in the spirit of):
+  - Build the world first; let the story grow from its languages, maps, and deep history.
+  - Depth comes from what you leave unseen — imply a past far larger than the page.
+  - Eucatastrophe: earn the sudden turn to joy by making the darkness real first.
+  - Trust the long road; small, patient hands change the fate of great things.
+
+Leo Tolstoy (in the spirit of):
+  - Show the whole human being — no one is only a villain or only a hero.
+  - The largest truths live in the smallest domestic moments; watch them closely.
+  - Write what you have genuinely felt; sincerity moves readers more than cleverness.
+  - Let history and the private heart collide; the epic is made of ordinary lives.
+
+Fyodor Dostoevsky (in the spirit of):
+  - Put your characters under pressure until their deepest beliefs are forced to speak.
+  - Give every idea its strongest human voice, especially the ones you disagree with.
+  - The soul is a battleground; let doubt and faith argue without an easy winner.
+  - Suffering and freedom reveal character — corner them with impossible choices.
+
+Fabrice Hadjadj (in the spirit of):
+  - Write from the body and the world, not from abstractions; the concrete is holy.
+  - Embrace paradox and contradiction; reality is stranger and richer than any thesis.
+  - Let flesh, desire, and mortality into the page — that is where meaning lives.
+  - Wonder before you judge; attention to the real is the beginning of wisdom.
+
+C.S. Lewis (in the spirit of):
+  - Don't tell us a thing was "terrible" — describe it so we feel terror ourselves.
+  - Use concrete, plain words; "more" and "very" are weaker than the right noun.
+  - Say what you mean and mean what you say; clarity is a courtesy to the reader.
+  - Smuggle deep truths past a watchful mind by dressing them as story.
+
 Common threads: cut ruthlessly, prefer plain and active, draft freely then
-revise hard, serve the reader, and show up daily.
+revise hard, serve the reader, show up daily — and let wonder, paradox, and
+the concrete carry the truths too large to state outright.
 """.strip()
