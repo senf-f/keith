@@ -25,6 +25,16 @@ cd keith
 uv sync
 ```
 
+### Install globally
+
+To run `keith` from any directory (not just the project folder), install it as a uv tool:
+
+```bash
+uv tool install --editable .
+```
+
+Then `keith` is available on your PATH everywhere. `--editable` means code changes take effect without reinstalling. If the command isn't found afterward, run `uv tool update-shell` once and reopen your terminal. Update or remove later with `uv tool upgrade keith` / `uv tool uninstall keith`.
+
 ## Usage
 
 Launch the interactive REPL:
