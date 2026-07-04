@@ -6,6 +6,7 @@ from pathlib import Path
 
 from keith.commands import CommandHandler
 from keith.db import Database
+from keith.tips import WRITING_TIPS
 
 
 COMMANDS = [
@@ -13,7 +14,7 @@ COMMANDS = [
     "add chapter", "list chapters", "edit chapter", "show chapter",
     "move chapter", "delete chapter",
     "note new", "note list", "note show", "note edit", "note delete",
-    "search", "export", "stats", "help", "exit", "quit",
+    "search", "export", "stats", "tips", "help", "exit", "quit",
 ]
 
 HELP_TEXT = """
@@ -49,6 +50,7 @@ HELP_TEXT = """
   Other:
     export          Export active book to markdown
     stats           Show word count per chapter
+    tips            Show writing advice from great authors
     help            Show this help
     exit / quit     Leave keith
 """.strip()
@@ -131,6 +133,8 @@ def run_repl() -> None:
             handler.export()
         elif text == "stats":
             handler.stats()
+        elif text == "tips":
+            print(WRITING_TIPS)
         else:
             print(f"Unknown command: {text}. Type 'help' for available commands.")
 
