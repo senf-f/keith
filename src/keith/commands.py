@@ -369,6 +369,39 @@ class CommandHandler:
             f.write(md)
         print(f"Exported to {filename}")
 
+    # -- Backup / restore --
+
+    def backup(self) -> None:
+        dest = input("Backup to file path: ").strip()
+        if not dest:
+            print("Cancelled.")
+            return
+        if os.path.exists(dest):
+            confirm = input(f"'{dest}' exists. Overwrite? (y/n): ").strip().lower()
+            if confirm != "y":
+                print("Cancelled.")
+                return
+        self.db.backup(dest)
+        print(f"Backed up to {dest}")
+
+    def restore(self) -> None:
+        src = input("Restore from file path: ").strip()
+        if not src:
+            print("Cancelled.")
+            return
+        if not os.path.exists(src):
+            print(f"File not found: {src}")
+            return
+        confirm = input(
+            "This replaces ALL current data with the backup. Continue? (y/n): "
+        ).strip().lower()
+        if confirm != "y":
+            print("Cancelled.")
+            return
+        self.db.restore(src)
+        self.active_book = None
+        print(f"Restored from {src}")
+
     # -- Stats --
 
     def stats(self) -> None:

@@ -14,7 +14,7 @@ COMMANDS = [
     "add chapter", "list chapters", "edit chapter", "show chapter",
     "move chapter", "delete chapter",
     "note new", "note list", "note show", "note edit", "note delete",
-    "search", "export", "stats", "tips", "help", "exit", "quit",
+    "search", "export", "stats", "tips", "backup", "restore", "help", "exit", "quit",
 ]
 
 HELP_TEXT = """
@@ -51,6 +51,8 @@ HELP_TEXT = """
     export          Export active book to markdown
     stats           Show word count per chapter
     tips            Show writing advice from great authors
+    backup          Back up the whole database to a file
+    restore         Replace all data from a backup file
     help            Show this help
     exit / quit     Leave keith
 """.strip()
@@ -135,6 +137,10 @@ def run_repl() -> None:
             handler.stats()
         elif text == "tips":
             print(WRITING_TIPS)
+        elif text == "backup":
+            handler.backup()
+        elif text == "restore":
+            handler.restore()
         else:
             print(f"Unknown command: {text}. Type 'help' for available commands.")
 

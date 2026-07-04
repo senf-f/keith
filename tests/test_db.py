@@ -8,6 +8,15 @@ from keith.models import Book
 
 
 @pytest.fixture
+def tmp_path_factory_db():
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    yield path
+    if os.path.exists(path):
+        os.unlink(path)
+
+
+@pytest.fixture
 def db():
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -128,3 +137,80 @@ def test_chapter_count(db):
     db.create_chapter(book.id, "Ch 1", "")
     db.create_chapter(book.id, "Ch 2", "")
     assert db.chapter_count(book.id) == 2
+
+
+# -- Backup / restore --
+
+
+def test_backup_creates_file(db, tmp_path_factory_db):
+    db.create_book("Novel")
+    db.backup(tmp_path_factory_db)
+    assert os.path.exists(tmp_path_factory_db)
+    assert os.path.getsize(tmp_path_factory_db) > 0
+
+
+def test_backup_contains_data(db, tmp_path_factory_db):
+    book = db.create_book("Backed Up")
+    db.create_chapter(book.id, "Ch 1", "Some content")
+    db.create_note(book.id, "idea", "A note")
+    db.backup(tmp_path_factory_db)
+
+    copy = Database(tmp_path_factory_db)
+    books = copy.list_books()
+    assert len(books) == 1
+    assert books[0].title == "Backed Up"
+    chapters = copy.list_chapters(books[0].id)
+    assert len(chapters) == 1
+    assert chapters[0].content == "Some content"
+    notes = copy.list_notes(books[0].id)
+    assert len(notes) == 1
+    assert notes[0].content == "A note"
+    copy.close()
+
+
+def test_backup_is_consistent_snapshot_not_live_link(db, tmp_path_factory_db):
+    db.create_book("First")
+    db.backup(tmp_path_factory_db)
+    db.create_book("Second")
+
+    copy = Database(tmp_path_factory_db)
+    titles = [b.title for b in copy.list_books()]
+    assert titles == ["First"]
+    copy.close()
+
+
+def test_restore_replaces_data(db, tmp_path_factory_db):
+    original = db.create_book("Original")
+    db.backup(tmp_path_factory_db)
+
+    db.delete_book(original.id)
+    db.create_book("Replacement")
+    assert [b.title for b in db.list_books()] == ["Replacement"]
+
+    db.restore(tmp_path_factory_db)
+    assert [b.title for b in db.list_books()] == ["Original"]
+
+
+def test_restore_search_works_after(db, tmp_path_factory_db):
+    book = db.create_book("Searchable")
+    db.create_chapter(book.id, "Ch 1", "findme keyword here")
+    db.backup(tmp_path_factory_db)
+    db.delete_book(book.id)
+
+    db.restore(tmp_path_factory_db)
+    results = db.search("findme")
+    assert len(results) == 1
+    assert results[0].book_title == "Searchable"
+
+
+def test_backup_roundtrip_preserves_chapter_order(db, tmp_path_factory_db):
+    book = db.create_book("Novel")
+    db.create_chapter(book.id, "Ch 1", "")
+    db.create_chapter(book.id, "Ch 2", "")
+    db.create_chapter(book.id, "Ch 3", "")
+    db.backup(tmp_path_factory_db)
+
+    copy = Database(tmp_path_factory_db)
+    titles = [c.title for c in copy.list_chapters(book.id)]
+    assert titles == ["Ch 1", "Ch 2", "Ch 3"]
+    copy.close()

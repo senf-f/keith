@@ -139,6 +139,23 @@ class Database:
     def close(self):
         self.conn.close()
 
+    # -- Backup / restore --
+
+    def backup(self, dest_path: str | Path) -> None:
+        dest = sqlite3.connect(str(dest_path))
+        try:
+            self.conn.backup(dest)
+        finally:
+            dest.close()
+
+    def restore(self, src_path: str | Path) -> None:
+        src = sqlite3.connect(str(src_path))
+        try:
+            src.backup(self.conn)
+        finally:
+            src.close()
+        self.conn.commit()
+
     # -- Book CRUD --
 
     def create_book(self, title: str) -> Book:

@@ -293,3 +293,59 @@ def test_search_prints_note_marker(handler, capsys):
     out = capsys.readouterr().out
     assert "note:character" in out
     assert "Gandalf the grey wizard" in out
+
+
+# -- Backup / restore commands --
+
+
+def test_backup_writes_file(handler, capsys, tmp_path):
+    handler.db.create_book("Novel")
+    dest = str(tmp_path / "keith-backup.db")
+    with patch("builtins.input", return_value=dest):
+        handler.backup()
+    assert os.path.exists(dest)
+    out = capsys.readouterr().out
+    assert dest in out
+
+
+def test_backup_empty_path_cancels(handler, capsys):
+    handler.db.create_book("Novel")
+    with patch("builtins.input", return_value=""):
+        handler.backup()
+    out = capsys.readouterr().out
+    assert "Cancelled" in out
+
+
+def test_restore_replaces_data(handler, capsys, tmp_path):
+    original = handler.db.create_book("Original")
+    src = str(tmp_path / "snap.db")
+    handler.db.backup(src)
+    handler.db.delete_book(original.id)
+    handler.db.create_book("Replacement")
+
+    with patch("builtins.input", side_effect=[src, "y"]):
+        handler.restore()
+    assert [b.title for b in handler.db.list_books()] == ["Original"]
+
+
+def test_restore_cancelled_when_declined(handler, capsys, tmp_path):
+    handler.db.create_book("Current")
+    src = str(tmp_path / "snap.db")
+    handler.db.backup(src)
+    handler.db.create_book("Extra")
+
+    with patch("builtins.input", side_effect=[src, "n"]):
+        handler.restore()
+    out = capsys.readouterr().out
+    assert "Cancelled" in out
+    assert [b.title for b in handler.db.list_books()] == ["Current", "Extra"]
+
+
+def test_restore_missing_file(handler, capsys, tmp_path):
+    handler.db.create_book("Current")
+    missing = str(tmp_path / "does-not-exist.db")
+    with patch("builtins.input", return_value=missing):
+        handler.restore()
+    out = capsys.readouterr().out
+    assert "not found" in out.lower()
+    assert [b.title for b in handler.db.list_books()] == ["Current"]
