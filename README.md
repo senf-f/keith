@@ -89,12 +89,34 @@ uv run keith export <id>   # Export a book to markdown
 | `search --book <id> <query>` | Search within a specific book |
 | `search --from <date> --to <date> <query>` | Search with date range |
 | `export` | Export active book to markdown |
+| `backup` | Back up the entire database to a file |
+| `restore` | Replace all data from a backup file |
 | `help` | Show available commands |
 | `exit` | Leave keith |
 
 ## Data storage
 
 Books and chapters are stored in a SQLite database at `~/.keith/keith.db`. Full-text search is powered by SQLite FTS5.
+
+## Backup and restore
+
+Everything lives in a single SQLite file, so backups are whole-database snapshots (all books, chapters, and notes).
+
+```
+keith> backup
+Backup to file path: ~/keith-2026-07-04.db
+Backed up to ~/keith-2026-07-04.db
+
+keith> restore
+Restore from file path: ~/keith-2026-07-04.db
+This replaces ALL current data with the backup. Continue? (y/n): y
+Restored from ~/keith-2026-07-04.db
+```
+
+- `backup` writes a consistent snapshot using SQLite's online backup API — safe to run at any time.
+- `restore` **replaces all current data** with the contents of the backup file, so it asks for confirmation first.
+
+This is a full binary snapshot for disaster recovery — distinct from `export`, which produces human-readable markdown of a single book.
 
 ## Running tests
 
