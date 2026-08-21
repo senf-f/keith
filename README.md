@@ -110,13 +110,21 @@ Books and chapters are stored in a SQLite database at `~/.keith/keith.db`. Full-
 
 ### Using keith on multiple machines
 
-Set `KEITH_DB` to a path inside a synced folder (Dropbox, iCloud, OneDrive, Syncthing) and every machine shares one library:
+keith itself isn't synced — you install it on each machine and point them all at one shared database file.
 
-```bash
-export KEITH_DB="~/Dropbox/keith/keith.db"
-```
+1. **Install keith on each machine** using the [Installation](#installation) steps above (`uv sync`, or `uv tool install --editable .` for a global command).
+2. **Put the database in a synced folder** — Dropbox, iCloud, OneDrive, or Syncthing. On the first machine, either set `KEITH_DB` before creating anything, or `backup` your existing `~/.keith/keith.db` into the synced folder.
+3. **Set `KEITH_DB` to that shared path on every machine** (same file, same folder):
 
-On exit keith checkpoints the write-ahead log back into the `.db` file, so the single file is always self-contained and safe to sync. **Edit from one machine at a time** — like any file-synced SQLite database, concurrent writes on two machines can corrupt it. For true simultaneous editing you'd want a hosted libSQL/Turso setup instead.
+   ```bash
+   export KEITH_DB="~/Dropbox/keith/keith.db"
+   ```
+
+   Add that line to your `~/.bashrc` / `~/.zshrc` (or a PowerShell profile) so it persists across sessions.
+
+Once the synced folder finishes copying the file to a machine, `keith` there sees the same books, chapters, and notes.
+
+On exit keith checkpoints the write-ahead log back into the `.db` file, so the single file is always self-contained and safe to sync. **Edit from one machine at a time** — like any file-synced SQLite database, concurrent writes on two machines can corrupt it, and you should let the folder finish syncing before opening keith on the next machine. For true simultaneous editing you'd want a hosted libSQL/Turso setup instead.
 
 ## Backup and restore
 
