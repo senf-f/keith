@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,9 +13,14 @@ def _now() -> str:
 class Database:
     def __init__(self, db_path: str | Path | None = None):
         if db_path is None:
-            db_dir = Path.home() / ".keith"
-            db_dir.mkdir(exist_ok=True)
-            db_path = db_dir / "keith.db"
+            env_path = os.environ.get("KEITH_DB")
+            if env_path:
+                db_path = Path(env_path).expanduser()
+                db_path.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                db_dir = Path.home() / ".keith"
+                db_dir.mkdir(exist_ok=True)
+                db_path = db_dir / "keith.db"
         self.conn = sqlite3.connect(str(db_path))
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
@@ -137,6 +143,9 @@ class Database:
             """)
 
     def close(self):
+        # Fold the WAL back into the .db so the file is self-contained —
+        # safe to sync via Dropbox/iCloud/Syncthing without losing recent writes.
+        self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         self.conn.close()
 
     # -- Backup / restore --

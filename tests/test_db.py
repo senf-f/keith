@@ -214,3 +214,25 @@ def test_backup_roundtrip_preserves_chapter_order(db, tmp_path_factory_db):
     titles = [c.title for c in copy.list_chapters(book.id)]
     assert titles == ["Ch 1", "Ch 2", "Ch 3"]
     copy.close()
+
+
+def test_keith_db_env_overrides_default_path(tmp_path_factory_db, monkeypatch):
+    monkeypatch.setenv("KEITH_DB", tmp_path_factory_db)
+    database = Database()
+    database.create_book("Env Book")
+    database.close()
+
+    assert os.path.getsize(tmp_path_factory_db) > 0
+    reopened = Database(tmp_path_factory_db)
+    assert [b.title for b in reopened.list_books()] == ["Env Book"]
+    reopened.close()
+
+
+def test_close_checkpoints_wal_into_main_db(tmp_path_factory_db):
+    database = Database(tmp_path_factory_db)
+    database.create_book("Persisted")
+    database.close()
+    # TRUNCATE checkpoint folds the WAL back in, so the sidecar is empty/absent
+    # and the .db alone is safe to file-sync.
+    wal = tmp_path_factory_db + "-wal"
+    assert not os.path.exists(wal) or os.path.getsize(wal) == 0

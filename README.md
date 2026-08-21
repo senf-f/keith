@@ -108,6 +108,16 @@ uv run keith export <id>   # Export a book to markdown
 
 Books and chapters are stored in a SQLite database at `~/.keith/keith.db`. Full-text search is powered by SQLite FTS5.
 
+### Using keith on multiple machines
+
+Set `KEITH_DB` to a path inside a synced folder (Dropbox, iCloud, OneDrive, Syncthing) and every machine shares one library:
+
+```bash
+export KEITH_DB="~/Dropbox/keith/keith.db"
+```
+
+On exit keith checkpoints the write-ahead log back into the `.db` file, so the single file is always self-contained and safe to sync. **Edit from one machine at a time** — like any file-synced SQLite database, concurrent writes on two machines can corrupt it. For true simultaneous editing you'd want a hosted libSQL/Turso setup instead.
+
 ## Backup and restore
 
 Everything lives in a single SQLite file, so backups are whole-database snapshots (all books, chapters, and notes).
