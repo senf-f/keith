@@ -126,6 +126,23 @@ Once the synced folder finishes copying the file to a machine, `keith` there see
 
 On exit keith checkpoints the write-ahead log back into the `.db` file, so the single file is always self-contained and safe to sync. **Edit from one machine at a time** — like any file-synced SQLite database, concurrent writes on two machines can corrupt it, and you should let the folder finish syncing before opening keith on the next machine. For true simultaneous editing you'd want a hosted libSQL/Turso setup instead.
 
+#### When sync goes wrong
+
+If you open keith before the folder has finished syncing, you'll be writing on top of a stale file, and your sync tool resolves it by parking the losing version in a conflict file — Dropbox as `keith (conflicted copy).db`, Syncthing as `keith.sync-conflict-<timestamp>.db`. Nothing is lost, but the writes in that file are no longer in the database keith reads.
+
+keith can't prevent this — the machine has no way to know a newer version exists before sync delivers it — so instead it checks for those files on startup and warns you:
+
+```
+WARNING: your sync tool parked conflicting copies beside keith.db — writes made
+on another machine may be missing here:
+  ~/Dropbox/keith/keith (conflicted copy).db
+Salvage text with 'export', or swap a copy in wholesale with 'restore'.
+```
+
+To recover, decide which copy is the one you want. Point `KEITH_DB` at the conflict file temporarily and `export` the chapters you're missing, then paste them back — or if the conflict file is simply the better version, `restore` from it to replace everything. Delete the conflict file once you're done so the warning clears.
+
+OneDrive names its conflicts `keith-<MACHINE>.db`, which is indistinguishable from a backup filename, so those aren't detected.
+
 ## Backup and restore
 
 Everything lives in a single SQLite file, so backups are whole-database snapshots (all books, chapters, and notes).

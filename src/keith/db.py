@@ -10,18 +10,35 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
+# ponytail: OneDrive names conflicts "<stem>-<MACHINE>.db", which can't be told
+# apart from a backup file — those go undetected. Add if OneDrive is ever used.
+CONFLICT_MARKERS = ("sync-conflict-", "conflicted copy")
+
+
+def db_path() -> Path:
+    env_path = os.environ.get("KEITH_DB")
+    if env_path:
+        path = Path(env_path).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+    db_dir = Path.home() / ".keith"
+    db_dir.mkdir(exist_ok=True)
+    return db_dir / "keith.db"
+
+
+def sync_conflicts(db_file: str | Path) -> list[Path]:
+    """Copies a file-sync tool parked beside the database after a losing write."""
+    db_file = Path(db_file)
+    return sorted(
+        p for p in db_file.parent.iterdir()
+        if p != db_file and any(m in p.name for m in CONFLICT_MARKERS)
+    )
+
+
 class Database:
-    def __init__(self, db_path: str | Path | None = None):
-        if db_path is None:
-            env_path = os.environ.get("KEITH_DB")
-            if env_path:
-                db_path = Path(env_path).expanduser()
-                db_path.parent.mkdir(parents=True, exist_ok=True)
-            else:
-                db_dir = Path.home() / ".keith"
-                db_dir.mkdir(exist_ok=True)
-                db_path = db_dir / "keith.db"
-        self.conn = sqlite3.connect(str(db_path))
+    def __init__(self, db_path_override: str | Path | None = None):
+        self.path = Path(db_path_override) if db_path_override is not None else db_path()
+        self.conn = sqlite3.connect(str(self.path))
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self._create_schema()

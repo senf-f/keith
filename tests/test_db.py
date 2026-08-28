@@ -3,7 +3,7 @@ import tempfile
 
 import pytest
 
-from keith.db import Database
+from keith.db import Database, sync_conflicts
 from keith.models import Book
 
 
@@ -236,3 +236,28 @@ def test_close_checkpoints_wal_into_main_db(tmp_path_factory_db):
     # and the .db alone is safe to file-sync.
     wal = tmp_path_factory_db + "-wal"
     assert not os.path.exists(wal) or os.path.getsize(wal) == 0
+
+
+def test_sync_conflicts_finds_sync_tool_copies_but_not_backups(tmp_path):
+    db_file = tmp_path / "keith.db"
+    db_file.touch()
+    for name in (
+        "keith.sync-conflict-20260828-120000-ABCDEFG.db",
+        "keith (Mate's conflicted copy 2026-08-28).db",
+        "keith-2026-07-04.db",
+        "keith.db-wal",
+    ):
+        (tmp_path / name).touch()
+
+    found = {p.name for p in sync_conflicts(db_file)}
+
+    assert found == {
+        "keith.sync-conflict-20260828-120000-ABCDEFG.db",
+        "keith (Mate's conflicted copy 2026-08-28).db",
+    }
+
+
+def test_sync_conflicts_empty_when_folder_is_clean(tmp_path):
+    db_file = tmp_path / "keith.db"
+    db_file.touch()
+    assert sync_conflicts(db_file) == []

@@ -5,7 +5,7 @@ from prompt_toolkit.history import FileHistory
 from pathlib import Path
 
 from keith.commands import CommandHandler
-from keith.db import Database
+from keith.db import Database, sync_conflicts
 from keith.tips import WRITING_TIPS
 
 
@@ -67,6 +67,14 @@ def _get_prompt(handler: CommandHandler) -> str:
 def run_repl() -> None:
     db = Database()
     handler = CommandHandler(db)
+
+    conflicts = sync_conflicts(db.path)
+    if conflicts:
+        print(f"WARNING: your sync tool parked conflicting copies beside {db.path.name} "
+              "— writes made on another machine may be missing here:")
+        for path in conflicts:
+            print(f"  {path}")
+        print("Salvage text with 'export', or swap a copy in wholesale with 'restore'.\n")
 
     history_dir = Path.home() / ".keith"
     history_dir.mkdir(exist_ok=True)
