@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import tempfile
 
 import pytest
@@ -236,6 +237,48 @@ def test_close_checkpoints_wal_into_main_db(tmp_path_factory_db):
     # and the .db alone is safe to file-sync.
     wal = tmp_path_factory_db + "-wal"
     assert not os.path.exists(wal) or os.path.getsize(wal) == 0
+
+
+def test_books_default_to_draft(db):
+    book = db.create_book("Unfinished")
+    assert book.status == "draft"
+    assert db.get_book(book.id).status == "draft"
+
+
+def test_set_status(db):
+    book = db.create_book("Post")
+    db.set_status(book.id, "published")
+    assert db.get_book(book.id).status == "published"
+    db.set_status(book.id, "draft")
+    assert db.get_book(book.id).status == "draft"
+
+
+def test_status_column_is_added_to_a_database_that_predates_it(tmp_path):
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(str(path))
+    old.executescript("""
+        CREATE TABLE books (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        INSERT INTO books (title, created_at, updated_at)
+        VALUES ('Legacy Novel', '2026-01-01', '2026-01-01');
+    """)
+    old.commit()
+    old.close()
+
+    db = Database(path)
+    books = db.list_books()
+    assert [b.title for b in books] == ["Legacy Novel"]
+    assert books[0].status == "draft"
+    db.close()
+
+    # Opening again must not retry the ALTER and hit a duplicate-column error.
+    again = Database(path)
+    assert [b.title for b in again.list_books()] == ["Legacy Novel"]
+    again.close()
 
 
 def test_sync_conflicts_finds_sync_tool_copies_but_not_backups(tmp_path):

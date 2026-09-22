@@ -38,6 +38,57 @@ def test_book_list(handler, capsys):
     assert "Book B" in out
 
 
+def test_article_new_creates_a_book_holding_one_chapter(handler):
+    with patch("builtins.input", return_value="On Cheese"), \
+         patch("keith.commands.open_editor", return_value="Poets have been silent."):
+        handler.article_new()
+
+    books = handler.db.list_books()
+    assert [b.title for b in books] == ["On Cheese"]
+    chapters = handler.db.list_chapters(books[0].id)
+    assert len(chapters) == 1
+    assert chapters[0].title == "On Cheese"
+    assert chapters[0].content == "Poets have been silent."
+    assert handler.active_book.id == books[0].id
+
+
+def test_article_new_writes_nothing_when_the_editor_fails(handler, capsys):
+    with patch("builtins.input", return_value="Doomed"), \
+         patch("keith.commands.open_editor", return_value=None):
+        handler.article_new()
+
+    assert handler.db.list_books() == []
+    assert "Editor failed" in capsys.readouterr().out
+
+
+def test_publish_and_unpublish(handler):
+    book = handler.db.create_book("Post")
+    handler.active_book = book
+    handler.publish()
+    assert handler.db.get_book(book.id).status == "published"
+    handler.unpublish()
+    assert handler.db.get_book(book.id).status == "draft"
+
+
+def test_publish_requires_an_active_book(handler, capsys):
+    handler.publish()
+    assert "No book selected" in capsys.readouterr().out
+
+
+def test_book_list_marks_drafts(handler, capsys):
+    handler.db.create_book("Unfinished")
+    done = handler.db.create_book("Out The Door")
+    handler.db.set_status(done.id, "published")
+
+    handler.book_list()
+    out = capsys.readouterr().out
+
+    unfinished_line = next(ln for ln in out.splitlines() if "Unfinished" in ln)
+    done_line = next(ln for ln in out.splitlines() if "Out The Door" in ln)
+    assert "draft" in unfinished_line
+    assert "draft" not in done_line
+
+
 def test_book_select(handler):
     handler.db.create_book("Novel")
     with patch("builtins.input", return_value="1"):

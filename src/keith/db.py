@@ -49,7 +49,8 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'draft'
             );
 
             CREATE TABLE IF NOT EXISTS chapters (
@@ -85,8 +86,18 @@ class Database:
                 content_rowid=id
             );
         """)
+        self._add_missing_columns()
         self._create_triggers()
         self.conn.commit()
+
+    def _add_missing_columns(self):
+        # CREATE TABLE IF NOT EXISTS leaves existing tables alone, so databases
+        # made before a column was introduced need it added explicitly.
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(books)")}
+        if "status" not in columns:
+            self.conn.execute(
+                "ALTER TABLE books ADD COLUMN status TEXT NOT NULL DEFAULT 'draft'"
+            )
 
     def _create_triggers(self):
         existing = {row[0] for row in self.conn.execute(
@@ -195,18 +206,27 @@ class Database:
 
     def list_books(self) -> list[Book]:
         rows = self.conn.execute(
-            "SELECT id, title, created_at, updated_at FROM books ORDER BY id"
+            "SELECT id, title, created_at, updated_at, status FROM books ORDER BY id"
         ).fetchall()
-        return [Book(id=r[0], title=r[1], created_at=r[2], updated_at=r[3]) for r in rows]
+        return [Book(id=r[0], title=r[1], created_at=r[2], updated_at=r[3], status=r[4])
+                for r in rows]
 
     def get_book(self, book_id: int) -> Book | None:
         row = self.conn.execute(
-            "SELECT id, title, created_at, updated_at FROM books WHERE id = ?",
+            "SELECT id, title, created_at, updated_at, status FROM books WHERE id = ?",
             (book_id,),
         ).fetchone()
         if row is None:
             return None
-        return Book(id=row[0], title=row[1], created_at=row[2], updated_at=row[3])
+        return Book(id=row[0], title=row[1], created_at=row[2],
+                    updated_at=row[3], status=row[4])
+
+    def set_status(self, book_id: int, status: str) -> None:
+        self.conn.execute(
+            "UPDATE books SET status = ?, updated_at = ? WHERE id = ?",
+            (status, _now(), book_id),
+        )
+        self.conn.commit()
 
     def delete_book(self, book_id: int) -> None:
         self.conn.execute("DELETE FROM books WHERE id = ?", (book_id,))

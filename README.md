@@ -11,8 +11,9 @@ A CLI tool for writing and organizing books. Named after G.K. Chesterton.
 - **Multiple books** in a single library
 - **Chapter management** with ordering, editing via `$EDITOR`, and display
 - **Notes** per book (ideas, outline, characters, places) — searchable but never exported
+- **Short-form writing** — blog posts and articles, with draft/published tracking
 - **Full-text search** across all books (titles and content) with date range filters
-- **Markdown export** with table of contents
+- **Markdown export** with table of contents, or plain prose for single-chapter pieces
 - **Cross-platform** — works on Bash and PowerShell
 
 ## Installation
@@ -82,6 +83,9 @@ uv run keith export <id>   # Export a book to markdown
 | `book select` | Select a book to work on |
 | `book info` | Show active book details |
 | `book delete` | Delete the active book |
+| `article new` | Write a blog post or article — one title, one body |
+| `publish` | Mark the active book/article published |
+| `unpublish` | Mark it a draft again |
 | `add chapter` | Add a new chapter (opens `$EDITOR`) |
 | `list chapters` | List chapters in order |
 | `edit chapter` | Edit a chapter in `$EDITOR` |
@@ -103,6 +107,33 @@ uv run keith export <id>   # Export a book to markdown
 | `restore` | Replace all data from a backup file |
 | `help` | Show available commands |
 | `exit` | Leave keith |
+
+## Short-form writing
+
+A blog post or article is just a book with a single chapter, so it gets search, notes, export, and backup for free — no separate concept to learn. `article new` skips the two-step dance of `book new` then `add chapter`: it asks for one title and opens `$EDITOR` for the body.
+
+```
+keith> article new
+Article title: Why Fairy Tales Matter
+# Opens your $EDITOR to write the body
+
+keith [Why Fairy Tales Matter]> publish
+Marked 'Why Fairy Tales Matter' published.
+```
+
+Everything in keith starts as a `draft`. `publish` and `unpublish` flip that, `book list` marks the drafts, and `book info` shows the status. It's a label for your own benefit — keith doesn't post anything anywhere.
+
+**Export adapts to length.** A book with exactly one chapter exports as plain prose — title, date, body — with no table of contents and no `Chapter 1:` heading:
+
+```markdown
+# Why Fairy Tales Matter
+
+*Created: 2026-09-22 | Last updated: 2026-09-22*
+
+Fairy tales do not tell children that dragons exist.
+```
+
+Add a second chapter and the table of contents and chapter headings come back. The tradeoff is that a book you've only written one chapter of also exports in the plain style until you write the next one.
 
 ## Data storage
 

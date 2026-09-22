@@ -29,6 +29,13 @@ def export_book_to_markdown(db: Database, book_id: int) -> str:
     lines.append(f"*Created: {book.created_at[:10]} | Last updated: {book.updated_at[:10]}*")
     lines.append("")
 
+    # A single chapter is short-form — an article reads wrong with a one-entry
+    # table of contents and a "Chapter 1:" heading over its only section.
+    if len(chapters) == 1:
+        lines.append(chapters[0].content)
+        lines.append("")
+        return "\n".join(lines)
+
     # Table of Contents
     lines.append("## Table of Contents")
     lines.append("")

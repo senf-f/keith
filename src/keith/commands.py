@@ -36,13 +36,46 @@ class CommandHandler:
         self.active_book = book
         print(f"Created book '{book.title}' (id: {book.id})")
 
+    def article_new(self) -> None:
+        title = input("Article title: ").strip()
+        if not title:
+            print("Title cannot be empty.")
+            return
+        content = open_editor()
+        if content is None:
+            print("Editor failed. Article not created.")
+            return
+        if not content.strip():
+            confirm = input("Article is empty. Save anyway? (y/n): ").strip().lower()
+            if confirm != "y":
+                print("Discarded.")
+                return
+        book = self.db.create_book(title)
+        self.db.create_chapter(book.id, title, content)
+        self.active_book = book
+        print(f"Created article '{title}' (id: {book.id})")
+
     def book_list(self) -> None:
         books = self.db.list_books()
         if not books:
             print("No books yet.")
             return
         for book in books:
-            print(f"  [{book.id}] {book.title}  ({book.created_at[:10]})")
+            marker = "  draft" if book.status == "draft" else ""
+            print(f"  [{book.id}] {book.title}  ({book.created_at[:10]}){marker}")
+
+    def publish(self) -> None:
+        self._set_status("published")
+
+    def unpublish(self) -> None:
+        self._set_status("draft")
+
+    def _set_status(self, status: str) -> None:
+        if not self._require_active_book():
+            return
+        self.db.set_status(self.active_book.id, status)
+        self.active_book.status = status
+        print(f"Marked '{self.active_book.title}' {status}.")
 
     def book_select(self) -> None:
         books = self.db.list_books()
@@ -69,6 +102,7 @@ class CommandHandler:
         count = self.db.chapter_count(book.id)
         print(f"  Title:    {book.title}")
         print(f"  Chapters: {count}")
+        print(f"  Status:   {book.status}")
         print(f"  Created:  {book.created_at[:10]}")
         print(f"  Updated:  {book.updated_at[:10]}")
 

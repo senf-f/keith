@@ -11,6 +11,7 @@ from keith.tips import WRITING_TIPS
 
 COMMANDS = [
     "book new", "book list", "book select", "book info", "book delete",
+    "article new", "publish", "unpublish",
     "add chapter", "list chapters", "edit chapter", "show chapter",
     "move chapter", "delete chapter",
     "note new", "note list", "note show", "note edit", "note delete",
@@ -24,6 +25,11 @@ HELP_TEXT = """
     book select     Select a book to work on
     book info       Show active book details
     book delete     Delete the active book
+
+  Short-form writing:
+    article new     Write a blog post or article (one title, one body)
+    publish         Mark the active book/article published
+    unpublish       Mark it a draft again
 
   Chapter commands (requires active book):
     add chapter     Add a new chapter
@@ -111,6 +117,12 @@ def run_repl() -> None:
             handler.book_info()
         elif text == "book delete":
             handler.book_delete()
+        elif text == "article new":
+            handler.article_new()
+        elif text == "publish":
+            handler.publish()
+        elif text == "unpublish":
+            handler.unpublish()
         elif text == "add chapter":
             handler.add_chapter()
         elif text == "list chapters":

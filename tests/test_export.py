@@ -60,6 +60,30 @@ def test_export_excludes_notes(db):
     assert "ANOTHER_SECRET" not in md
 
 
+def test_export_single_chapter_reads_as_an_article(db):
+    book = db.create_book("On Cheese")
+    db.create_chapter(book.id, "On Cheese", "Poets have been mysteriously silent on cheese.")
+
+    md = export_book_to_markdown(db, book.id)
+
+    assert "# On Cheese" in md
+    assert "Poets have been mysteriously silent on cheese." in md
+    assert "Table of Contents" not in md
+    assert "Chapter 1" not in md
+
+
+def test_export_regains_toc_at_second_chapter(db):
+    book = db.create_book("Grows Up")
+    db.create_chapter(book.id, "Part One", "A")
+    assert "Table of Contents" not in export_book_to_markdown(db, book.id)
+
+    db.create_chapter(book.id, "Part Two", "B")
+    md = export_book_to_markdown(db, book.id)
+    assert "## Table of Contents" in md
+    assert "## Chapter 1: Part One" in md
+    assert "## Chapter 2: Part Two" in md
+
+
 def test_export_preserves_chapter_order(db):
     book = db.create_book("Ordered")
     db.create_chapter(book.id, "Ch A", "A")
