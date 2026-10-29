@@ -76,8 +76,8 @@ def run_repl() -> None:
 
     conflicts = sync_conflicts(db.path)
     if conflicts:
-        print(f"WARNING: your sync tool parked conflicting copies beside {db.path.name} "
-              "— writes made on another machine may be missing here:")
+        print(f"WARNING: your sync tool parked conflicting copies beside {db.path.name} — writes made\n"
+              "on another machine may be missing here:")
         for path in conflicts:
             print(f"  {path}")
         print("Salvage text with 'export', or swap a copy in wholesale with 'restore'.\n")

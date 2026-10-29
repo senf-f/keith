@@ -29,10 +29,34 @@ def db_path() -> Path:
 def sync_conflicts(db_file: str | Path) -> list[Path]:
     """Copies a file-sync tool parked beside the database after a losing write."""
     db_file = Path(db_file)
+    # Sync tools keep the original stem and extension, so an unrelated
+    # "notes (conflicted copy).txt" in the same folder isn't ours.
     return sorted(
         p for p in db_file.parent.iterdir()
-        if p != db_file and any(m in p.name for m in CONFLICT_MARKERS)
+        if p != db_file
+        and p.name.startswith(db_file.stem)
+        and p.suffix == db_file.suffix
+        and any(m in p.name for m in CONFLICT_MARKERS)
     )
+
+
+def _fts_phrase(query: str) -> str:
+    """Quote each word so FTS5 matches it literally instead of parsing it as
+    syntax — otherwise "self-help" or "don't" raise an OperationalError."""
+    return " ".join('"' + word.replace('"', '""') + '"' for word in query.split())
+
+
+def _date_filter(column: str, date_from: str | None, date_to: str | None) -> tuple[str, list]:
+    # Compare only as many characters as the user typed, so "--to 2026-04-03"
+    # includes the whole of that day rather than stopping at its midnight.
+    sql, params = "", []
+    if date_from is not None:
+        sql += f" AND substr({column}, 1, ?) >= ?"
+        params += [len(date_from), date_from]
+    if date_to is not None:
+        sql += f" AND substr({column}, 1, ?) <= ?"
+        params += [len(date_to), date_to]
+    return sql, params
 
 
 class Database:
@@ -312,7 +336,16 @@ class Database:
         self.conn.commit()
 
     def delete_chapter(self, chapter_id: int) -> None:
+        chapter = self.get_chapter(chapter_id)
+        if chapter is None:
+            return
         self.conn.execute("DELETE FROM chapters WHERE id = ?", (chapter_id,))
+        # Close the gap so positions stay 1..N.
+        self.conn.execute(
+            "UPDATE chapters SET position = position - 1 "
+            "WHERE book_id = ? AND position > ?",
+            (chapter.book_id, chapter.position),
+        )
         self.conn.commit()
 
     def chapter_count(self, book_id: int) -> int:
@@ -388,10 +421,9 @@ class Database:
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> list[SearchResult]:
+        fts_query = _fts_phrase(query)
         if title_only:
-            fts_query = f'chapter_title:{query}'
-        else:
-            fts_query = query
+            fts_query = f"chapter_title : ({fts_query})"
 
         sql = """
             SELECT
@@ -411,12 +443,9 @@ class Database:
         if book_id is not None:
             sql += " AND c.book_id = ?"
             params.append(book_id)
-        if date_from is not None:
-            sql += " AND c.created_at >= ?"
-            params.append(date_from)
-        if date_to is not None:
-            sql += " AND c.created_at <= ?"
-            params.append(date_to)
+        date_sql, date_params = _date_filter("c.created_at", date_from, date_to)
+        sql += date_sql
+        params += date_params
 
         sql += " ORDER BY rank"
 
@@ -457,17 +486,14 @@ class Database:
             JOIN books b ON b.id = n.book_id
             WHERE fts_notes MATCH ?
         """
-        params: list = [query]
+        params: list = [_fts_phrase(query)]
 
         if book_id is not None:
             sql += " AND n.book_id = ?"
             params.append(book_id)
-        if date_from is not None:
-            sql += " AND n.created_at >= ?"
-            params.append(date_from)
-        if date_to is not None:
-            sql += " AND n.created_at <= ?"
-            params.append(date_to)
+        date_sql, date_params = _date_filter("n.created_at", date_from, date_to)
+        sql += date_sql
+        params += date_params
 
         sql += " ORDER BY rank"
 

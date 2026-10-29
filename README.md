@@ -108,6 +108,22 @@ uv run keith export <id>   # Export a book to markdown
 | `help` | Show available commands |
 | `exit` | Leave keith |
 
+### Search
+
+Every word of the query must appear, and words are matched literally — `self-help`, `don't` and `"quoted"` are all fine to type, and there are no `AND`/`OR`/`*` operators. With `--title`, every word must be in the chapter title.
+
+Dates are `YYYY-MM-DD` and both ends are inclusive: `search --from 2026-04-01 --to 2026-04-03 madman` finds chapters created on April 1st through the whole of April 3rd. A shorter prefix works too — `--from 2026-04 --to 2026-04` means all of April.
+
+### Editor
+
+keith opens `$VISUAL`, then `$EDITOR`, falling back to `notepad` on Windows and `vi` elsewhere. The value may include arguments, so GUI editors that need to block until you close the file work:
+
+```bash
+export EDITOR="code --wait"
+```
+
+If the editor can't be started or exits with an error, keith reports "Editor failed" and saves nothing.
+
 ## Short-form writing
 
 A blog post or article is just a book with a single chapter, so it gets search, notes, export, and backup for free — no separate concept to learn. `article new` skips the two-step dance of `book new` then `add chapter`: it asks for one title and opens `$EDITOR` for the body.
@@ -161,7 +177,7 @@ On exit keith checkpoints the write-ahead log back into the `.db` file, so the s
 
 If you open keith before the folder has finished syncing, you'll be writing on top of a stale file, and your sync tool resolves it by parking the losing version in a conflict file — Dropbox as `keith (conflicted copy).db`, Syncthing as `keith.sync-conflict-<timestamp>.db`. Nothing is lost, but the writes in that file are no longer in the database keith reads.
 
-keith can't prevent this — the machine has no way to know a newer version exists before sync delivers it — so instead it checks for those files on startup and warns you:
+keith can't prevent this — the machine has no way to know a newer version exists before sync delivers it — so instead it checks for those files on startup and warns you. Only copies of the database itself count (same name and `.db` extension), so other conflicted files in the folder don't trigger it:
 
 ```
 WARNING: your sync tool parked conflicting copies beside keith.db — writes made
@@ -181,13 +197,15 @@ Everything lives in a single SQLite file, so backups are whole-database snapshot
 ```
 keith> backup
 Backup to file path: ~/keith-2026-07-04.db
-Backed up to ~/keith-2026-07-04.db
+Backed up to /home/you/keith-2026-07-04.db
 
 keith> restore
 Restore from file path: ~/keith-2026-07-04.db
 This replaces ALL current data with the backup. Continue? (y/n): y
-Restored from ~/keith-2026-07-04.db
+Restored from /home/you/keith-2026-07-04.db
 ```
+
+Paths may start with `~` for your home directory, on every platform.
 
 - `backup` writes a consistent snapshot using SQLite's online backup API — safe to run at any time.
 - `restore` **replaces all current data** with the contents of the backup file, so it asks for confirmation first.

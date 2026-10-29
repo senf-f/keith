@@ -33,7 +33,7 @@ def test_open_editor_returns_content():
         filepath = cmd[-1] if isinstance(cmd, list) else cmd.split()[-1]
         with open(filepath, "w") as f:
             f.write("Hello from editor")
-        return None
+        return 0
 
     with patch("keith.editor.subprocess.call", side_effect=fake_editor):
         content = open_editor()
@@ -49,8 +49,31 @@ def test_open_editor_with_initial_content():
         assert initial == "Existing text"
         with open(filepath, "w") as f:
             f.write("Updated text")
-        return None
+        return 0
 
     with patch("keith.editor.subprocess.call", side_effect=fake_editor):
         content = open_editor(initial_content="Existing text")
     assert content == "Updated text"
+
+
+def test_open_editor_passes_editor_arguments():
+    calls = []
+
+    def fake_editor(cmd, **kwargs):
+        calls.append(cmd)
+        return 0
+
+    with patch.dict(os.environ, {"VISUAL": "code --wait"}):
+        with patch("keith.editor.subprocess.call", side_effect=fake_editor):
+            open_editor()
+    assert calls[0][:2] == ["code", "--wait"]
+
+
+def test_open_editor_returns_none_when_editor_missing():
+    with patch("keith.editor.subprocess.call", side_effect=FileNotFoundError):
+        assert open_editor() is None
+
+
+def test_open_editor_returns_none_on_nonzero_exit():
+    with patch("keith.editor.subprocess.call", return_value=1):
+        assert open_editor() is None

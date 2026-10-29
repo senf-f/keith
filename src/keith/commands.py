@@ -74,7 +74,7 @@ class CommandHandler:
         if not self._require_active_book():
             return
         self.db.set_status(self.active_book.id, status)
-        self.active_book.status = status
+        self.active_book = self.db.get_book(self.active_book.id)
         print(f"Marked '{self.active_book.title}' {status}.")
 
     def book_select(self) -> None:
@@ -145,8 +145,8 @@ class CommandHandler:
         if not chapters:
             print("No chapters yet.")
             return
-        for ch in chapters:
-            print(f"  {ch.position}. {ch.title}  ({ch.created_at[:10]})")
+        for i, ch in enumerate(chapters, 1):
+            print(f"  {i}. {ch.title}  ({ch.created_at[:10]})")
 
     def edit_chapter(self) -> None:
         if not self._require_active_book():
@@ -212,7 +212,10 @@ class CommandHandler:
                 new_pos = input(f"New position (1-{len(chapters)}): ").strip()
                 new_pos_int = int(new_pos)
                 if 1 <= new_pos_int <= len(chapters):
-                    self.db.move_chapter(chapter.id, new_pos_int)
+                    # Stored positions can have gaps (books made before deletes
+                    # compacted them), so move to the slot the user sees.
+                    target = chapters[new_pos_int - 1].position
+                    self.db.move_chapter(chapter.id, target)
                     print(f"Moved '{chapter.title}' to position {new_pos_int}.")
                 else:
                     print("Invalid position.")
@@ -338,7 +341,11 @@ class CommandHandler:
     # -- Search --
 
     def handle_search(self, args_str: str) -> None:
-        parts = shlex.split(args_str)
+        try:
+            parts = shlex.split(args_str)
+        except ValueError:
+            print("Unbalanced quote in search query.")
+            return
         if not parts:
             print("Usage: search [--title] [--book <id>] [--from <date>] [--to <date>] <query>")
             return
@@ -354,7 +361,11 @@ class CommandHandler:
                 title_only = True
             elif parts[i] == "--book" and i + 1 < len(parts):
                 i += 1
-                book_id = int(parts[i])
+                try:
+                    book_id = int(parts[i])
+                except ValueError:
+                    print(f"Invalid book id: {parts[i]}")
+                    return
             elif parts[i] == "--from" and i + 1 < len(parts):
                 i += 1
                 date_from = parts[i]
@@ -365,7 +376,7 @@ class CommandHandler:
                 query_parts.append(parts[i])
             i += 1
 
-        query = " ".join(query_parts)
+        query = " ".join(query_parts).strip()
         if not query:
             print("No search query provided.")
             return
@@ -410,6 +421,7 @@ class CommandHandler:
         if not dest:
             print("Cancelled.")
             return
+        dest = os.path.expanduser(dest)
         if os.path.exists(dest):
             confirm = input(f"'{dest}' exists. Overwrite? (y/n): ").strip().lower()
             if confirm != "y":
@@ -423,6 +435,7 @@ class CommandHandler:
         if not src:
             print("Cancelled.")
             return
+        src = os.path.expanduser(src)
         if not os.path.exists(src):
             print(f"File not found: {src}")
             return

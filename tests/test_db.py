@@ -304,3 +304,20 @@ def test_sync_conflicts_empty_when_folder_is_clean(tmp_path):
     db_file = tmp_path / "keith.db"
     db_file.touch()
     assert sync_conflicts(db_file) == []
+
+
+def test_delete_chapter_closes_position_gap(db):
+    book = db.create_book("Novel")
+    ch1 = db.create_chapter(book.id, "One", "")
+    db.create_chapter(book.id, "Two", "")
+    db.create_chapter(book.id, "Three", "")
+    db.delete_chapter(ch1.id)
+    assert [c.position for c in db.list_chapters(book.id)] == [1, 2]
+
+
+def test_sync_conflicts_ignores_other_files_in_the_folder(tmp_path):
+    db_file = tmp_path / "keith.db"
+    db_file.touch()
+    (tmp_path / "notes (conflicted copy).txt").touch()
+    (tmp_path / "other.sync-conflict-20260828-120000-ABCDEFG.db").touch()
+    assert sync_conflicts(db_file) == []

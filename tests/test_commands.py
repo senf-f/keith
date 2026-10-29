@@ -400,3 +400,59 @@ def test_restore_missing_file(handler, capsys, tmp_path):
     out = capsys.readouterr().out
     assert "not found" in out.lower()
     assert [b.title for b in handler.db.list_books()] == ["Current"]
+
+
+def test_backup_and_restore_expand_home(handler, capsys, tmp_path):
+    handler.db.create_book("Novel")
+    home = {"HOME": str(tmp_path), "USERPROFILE": str(tmp_path)}
+    with patch.dict(os.environ, home):
+        with patch("builtins.input", return_value="~/snap.db"):
+            handler.backup()
+        assert (tmp_path / "snap.db").exists()
+        with patch("builtins.input", side_effect=["~/snap.db", "y"]):
+            handler.restore()
+    assert "Restored" in capsys.readouterr().out
+
+
+def test_search_unbalanced_quote_does_not_crash(handler, capsys):
+    handler.handle_search('"unclosed')
+    assert "Unbalanced quote" in capsys.readouterr().out
+
+
+def test_search_non_numeric_book_id_does_not_crash(handler, capsys):
+    handler.handle_search("--book abc park")
+    assert "Invalid book id" in capsys.readouterr().out
+
+
+def test_move_chapter_works_with_gapped_positions(handler, capsys):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    ch1 = handler.db.create_chapter(book.id, "One", "")
+    handler.db.create_chapter(book.id, "Two", "")
+    # Simulate a database whose deletes left gaps: positions 2 and 3.
+    handler.db.conn.execute("UPDATE chapters SET position = position + 1")
+    handler.db.conn.commit()
+    with patch("builtins.input", side_effect=["1", "2"]):
+        handler.move_chapter()
+    assert [c.title for c in handler.db.list_chapters(book.id)] == ["Two", "One"]
+    assert ch1.id == handler.db.list_chapters(book.id)[1].id
+
+
+def test_list_chapters_numbers_from_one_regardless_of_position(handler, capsys):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    handler.db.create_chapter(book.id, "One", "")
+    handler.db.conn.execute("UPDATE chapters SET position = 5")
+    handler.db.conn.commit()
+    handler.list_chapters()
+    assert "  1. One" in capsys.readouterr().out
+
+
+def test_publish_refreshes_updated_date(handler, capsys):
+    book = handler.db.create_book("Novel")
+    handler.db.conn.execute("UPDATE books SET updated_at = '2000-01-01T00:00:00'")
+    handler.db.conn.commit()
+    handler.active_book = handler.db.get_book(book.id)
+    handler.publish()
+    assert handler.active_book.status == "published"
+    assert handler.active_book.updated_at > "2000-01-01T00:00:00"
