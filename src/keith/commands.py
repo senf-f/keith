@@ -1,17 +1,65 @@
 import os
 import shlex
+from typing import Callable, TypeVar
 
 from keith.db import Database
 from keith.editor import open_editor
 from keith.export import export_book_to_markdown, slugify
-from keith.models import Book
+from keith.models import DRAFT, PUBLISHED, Book, Chapter, Note
 
 
 VALID_CATEGORIES = ("idea", "outline", "character", "place", "other")
+SEARCH_USAGE = "Usage: search [--title] [--book <id>] [--from <date>] [--to <date>] <query>"
+
+T = TypeVar("T")
 
 
 def word_count(text: str) -> int:
     return len(text.split())
+
+
+def format_book_line(book: Book) -> str:
+    marker = "  draft" if book.status == DRAFT else ""
+    return f"  [{book.id}] {book.title}  ({book.created_at[:10]}){marker}"
+
+
+def _confirm(question: str) -> bool:
+    return input(f"{question} (y/n): ").strip().lower() == "y"
+
+
+def _ask_title(prompt: str) -> str | None:
+    title = input(prompt).strip()
+    if not title:
+        print("Title cannot be empty.")
+        return None
+    return title
+
+
+def _compose(kind: str) -> str | None:
+    """Body for a new article, chapter or note from $EDITOR; None if abandoned."""
+    content = open_editor()
+    if content is None:
+        print(f"Editor failed. {kind} not created.")
+        return None
+    if not content.strip() and not _confirm(f"{kind} is empty. Save anyway?"):
+        print("Discarded.")
+        return None
+    return content
+
+
+def _pick(items: list[T], describe: Callable[[T], str], prompt: str) -> T | None:
+    """Number the items, ask for one, and return it; None on a bad choice."""
+    for i, item in enumerate(items, 1):
+        print(f"  {i}. {describe(item)}")
+    try:
+        idx = int(input(prompt).strip()) - 1
+    except ValueError:
+        print("Invalid input.")
+        return None
+    if 0 <= idx < len(items):
+        return items[idx]
+    print("Invalid selection.")
+    return None
 
 
 class CommandHandler:
@@ -28,28 +76,20 @@ class CommandHandler:
     # -- Book commands --
 
     def book_new(self) -> None:
-        title = input("Book title: ").strip()
-        if not title:
-            print("Title cannot be empty.")
+        title = _ask_title("Book title: ")
+        if title is None:
             return
         book = self.db.create_book(title)
         self.active_book = book
         print(f"Created book '{book.title}' (id: {book.id})")
 
     def article_new(self) -> None:
-        title = input("Article title: ").strip()
-        if not title:
-            print("Title cannot be empty.")
+        title = _ask_title("Article title: ")
+        if title is None:
             return
-        content = open_editor()
+        content = _compose("Article")
         if content is None:
-            print("Editor failed. Article not created.")
             return
-        if not content.strip():
-            confirm = input("Article is empty. Save anyway? (y/n): ").strip().lower()
-            if confirm != "y":
-                print("Discarded.")
-                return
         book = self.db.create_book(title)
         self.db.create_chapter(book.id, title, content)
         self.active_book = book
@@ -61,14 +101,13 @@ class CommandHandler:
             print("No books yet.")
             return
         for book in books:
-            marker = "  draft" if book.status == "draft" else ""
-            print(f"  [{book.id}] {book.title}  ({book.created_at[:10]}){marker}")
+            print(format_book_line(book))
 
     def publish(self) -> None:
-        self._set_status("published")
+        self._set_status(PUBLISHED)
 
     def unpublish(self) -> None:
-        self._set_status("draft")
+        self._set_status(DRAFT)
 
     def _set_status(self, status: str) -> None:
         if not self._require_active_book():
@@ -82,18 +121,10 @@ class CommandHandler:
         if not books:
             print("No books yet. Create one with 'book new'.")
             return
-        for i, book in enumerate(books, 1):
-            print(f"  {i}. {book.title}")
-        choice = input("Select book number: ").strip()
-        try:
-            idx = int(choice) - 1
-            if 0 <= idx < len(books):
-                self.active_book = books[idx]
-                print(f"Selected: {self.active_book.title}")
-            else:
-                print("Invalid selection.")
-        except ValueError:
-            print("Invalid input.")
+        book = _pick(books, lambda b: b.title, "Select book number: ")
+        if book is not None:
+            self.active_book = book
+            print(f"Selected: {book.title}")
 
     def book_info(self) -> None:
         if not self._require_active_book():
@@ -109,8 +140,7 @@ class CommandHandler:
     def book_delete(self) -> None:
         if not self._require_active_book():
             return
-        confirm = input(f"Delete '{self.active_book.title}'? (y/n): ").strip().lower()
-        if confirm == "y":
+        if _confirm(f"Delete '{self.active_book.title}'?"):
             self.db.delete_book(self.active_book.id)
             print(f"Deleted '{self.active_book.title}'.")
             self.active_book = None
@@ -119,22 +149,26 @@ class CommandHandler:
 
     # -- Chapter commands --
 
+    def _pick_chapter(self, none_message: str, prompt: str) -> tuple[Chapter, list[Chapter]] | None:
+        """Pick a chapter of the active book, also returning the full ordered list."""
+        if not self._require_active_book():
+            return None
+        chapters = self.db.list_chapters(self.active_book.id)
+        if not chapters:
+            print(none_message)
+            return None
+        chapter = _pick(chapters, lambda ch: ch.title, prompt)
+        return (chapter, chapters) if chapter is not None else None
+
     def add_chapter(self) -> None:
         if not self._require_active_book():
             return
-        title = input("Chapter title: ").strip()
-        if not title:
-            print("Title cannot be empty.")
+        title = _ask_title("Chapter title: ")
+        if title is None:
             return
-        content = open_editor()
+        content = _compose("Chapter")
         if content is None:
-            print("Editor failed. Chapter not created.")
             return
-        if not content.strip():
-            confirm = input("Chapter is empty. Save anyway? (y/n): ").strip().lower()
-            if confirm != "y":
-                print("Discarded.")
-                return
         self.db.create_chapter(self.active_book.id, title, content)
         print(f"Added chapter '{title}'.")
 
@@ -149,125 +183,65 @@ class CommandHandler:
             print(f"  {i}. {ch.title}  ({ch.created_at[:10]})")
 
     def edit_chapter(self) -> None:
-        if not self._require_active_book():
+        picked = self._pick_chapter("No chapters to edit.", "Select chapter number: ")
+        if picked is None:
             return
-        chapters = self.db.list_chapters(self.active_book.id)
-        if not chapters:
-            print("No chapters to edit.")
+        chapter, _ = picked
+        content = open_editor(initial_content=chapter.content)
+        if content is None:
+            print("Editor failed. No changes saved.")
             return
-        for i, ch in enumerate(chapters, 1):
-            print(f"  {i}. {ch.title}")
-        choice = input("Select chapter number: ").strip()
-        try:
-            idx = int(choice) - 1
-            if 0 <= idx < len(chapters):
-                chapter = chapters[idx]
-                content = open_editor(initial_content=chapter.content)
-                if content is not None:
-                    self.db.update_chapter(chapter.id, content=content)
-                    print(f"Updated '{chapter.title}'.")
-                else:
-                    print("Editor failed. No changes saved.")
-            else:
-                print("Invalid selection.")
-        except ValueError:
-            print("Invalid input.")
+        self.db.update_chapter(chapter.id, content=content)
+        print(f"Updated '{chapter.title}'.")
 
     def show_chapter(self) -> None:
-        if not self._require_active_book():
+        picked = self._pick_chapter("No chapters.", "Select chapter number: ")
+        if picked is None:
             return
-        chapters = self.db.list_chapters(self.active_book.id)
-        if not chapters:
-            print("No chapters.")
-            return
-        for i, ch in enumerate(chapters, 1):
-            print(f"  {i}. {ch.title}")
-        choice = input("Select chapter number: ").strip()
-        try:
-            idx = int(choice) - 1
-            if 0 <= idx < len(chapters):
-                chapter = chapters[idx]
-                print(f"\n--- {chapter.title} ---\n")
-                print(chapter.content)
-                print(f"\n--- end ---\n")
-            else:
-                print("Invalid selection.")
-        except ValueError:
-            print("Invalid input.")
+        chapter, _ = picked
+        print(f"\n--- {chapter.title} ---\n")
+        print(chapter.content)
+        print("\n--- end ---\n")
 
     def move_chapter(self) -> None:
-        if not self._require_active_book():
+        picked = self._pick_chapter("No chapters to move.", "Move which chapter? (number): ")
+        if picked is None:
             return
-        chapters = self.db.list_chapters(self.active_book.id)
-        if not chapters:
-            print("No chapters to move.")
-            return
-        for i, ch in enumerate(chapters, 1):
-            print(f"  {i}. {ch.title}")
-        choice = input("Move which chapter? (number): ").strip()
+        chapter, chapters = picked
         try:
-            idx = int(choice) - 1
-            if 0 <= idx < len(chapters):
-                chapter = chapters[idx]
-                new_pos = input(f"New position (1-{len(chapters)}): ").strip()
-                new_pos_int = int(new_pos)
-                if 1 <= new_pos_int <= len(chapters):
-                    # Stored positions can have gaps (books made before deletes
-                    # compacted them), so move to the slot the user sees.
-                    target = chapters[new_pos_int - 1].position
-                    self.db.move_chapter(chapter.id, target)
-                    print(f"Moved '{chapter.title}' to position {new_pos_int}.")
-                else:
-                    print("Invalid position.")
-            else:
-                print("Invalid selection.")
+            new_pos = int(input(f"New position (1-{len(chapters)}): ").strip())
         except ValueError:
             print("Invalid input.")
+            return
+        if not 1 <= new_pos <= len(chapters):
+            print("Invalid position.")
+            return
+        # Stored positions can have gaps (books made before deletes compacted
+        # them), so move to the slot the user sees.
+        self.db.move_chapter(chapter.id, chapters[new_pos - 1].position)
+        print(f"Moved '{chapter.title}' to position {new_pos}.")
 
     def delete_chapter(self) -> None:
-        if not self._require_active_book():
+        picked = self._pick_chapter("No chapters to delete.", "Delete which chapter? (number): ")
+        if picked is None:
             return
-        chapters = self.db.list_chapters(self.active_book.id)
-        if not chapters:
-            print("No chapters to delete.")
-            return
-        for i, ch in enumerate(chapters, 1):
-            print(f"  {i}. {ch.title}")
-        choice = input("Delete which chapter? (number): ").strip()
-        try:
-            idx = int(choice) - 1
-            if 0 <= idx < len(chapters):
-                chapter = chapters[idx]
-                confirm = input(f"Delete '{chapter.title}'? (y/n): ").strip().lower()
-                if confirm == "y":
-                    self.db.delete_chapter(chapter.id)
-                    print(f"Deleted '{chapter.title}'.")
-                else:
-                    print("Cancelled.")
-            else:
-                print("Invalid selection.")
-        except ValueError:
-            print("Invalid input.")
+        chapter, _ = picked
+        if _confirm(f"Delete '{chapter.title}'?"):
+            self.db.delete_chapter(chapter.id)
+            print(f"Deleted '{chapter.title}'.")
+        else:
+            print("Cancelled.")
 
     # -- Note commands --
 
-    def _select_note(self, prompt: str):
+    def _pick_note(self, prompt: str) -> Note | None:
+        if not self._require_active_book():
+            return None
         notes = self.db.list_notes(self.active_book.id)
         if not notes:
             print("No notes.")
             return None
-        for i, note in enumerate(notes, 1):
-            print(f"  {i}. [{note.category}] {note.label}")
-        choice = input(prompt).strip()
-        try:
-            idx = int(choice) - 1
-        except ValueError:
-            print("Invalid input.")
-            return None
-        if 0 <= idx < len(notes):
-            return notes[idx]
-        print("Invalid selection.")
-        return None
+        return _pick(notes, lambda n: f"[{n.category}] {n.label}", prompt)
 
     def note_new(self) -> None:
         if not self._require_active_book():
@@ -276,15 +250,9 @@ class CommandHandler:
         if category not in VALID_CATEGORIES:
             print(f"Unknown category. Choose one of: {', '.join(VALID_CATEGORIES)}.")
             return
-        content = open_editor()
+        content = _compose("Note")
         if content is None:
-            print("Editor failed. Note not created.")
             return
-        if not content.strip():
-            confirm = input("Note is empty. Save anyway? (y/n): ").strip().lower()
-            if confirm != "y":
-                print("Discarded.")
-                return
         self.db.create_note(self.active_book.id, category, content)
         print(f"Added {category} note.")
 
@@ -303,36 +271,29 @@ class CommandHandler:
             print(f"  {i}. [{note.category}] {note.label}")
 
     def note_show(self) -> None:
-        if not self._require_active_book():
-            return
-        note = self._select_note("Select note number: ")
+        note = self._pick_note("Select note number: ")
         if note is None:
             return
         print(f"\n--- [{note.category}] {note.label} ---\n")
         print(note.content)
-        print(f"\n--- end ---\n")
+        print("\n--- end ---\n")
 
     def note_edit(self) -> None:
-        if not self._require_active_book():
-            return
-        note = self._select_note("Select note number: ")
+        note = self._pick_note("Select note number: ")
         if note is None:
             return
         content = open_editor(initial_content=note.content)
-        if content is not None:
-            self.db.update_note(note.id, content=content)
-            print("Note updated.")
-        else:
+        if content is None:
             print("Editor failed. No changes saved.")
+            return
+        self.db.update_note(note.id, content=content)
+        print("Note updated.")
 
     def note_delete(self) -> None:
-        if not self._require_active_book():
-            return
-        note = self._select_note("Delete which note? (number): ")
+        note = self._pick_note("Delete which note? (number): ")
         if note is None:
             return
-        confirm = input(f"Delete [{note.category}] {note.label}? (y/n): ").strip().lower()
-        if confirm == "y":
+        if _confirm(f"Delete [{note.category}] {note.label}?"):
             self.db.delete_note(note.id)
             print("Note deleted.")
         else:
@@ -347,7 +308,7 @@ class CommandHandler:
             print("Unbalanced quote in search query.")
             return
         if not parts:
-            print("Usage: search [--title] [--book <id>] [--from <date>] [--to <date>] <query>")
+            print(SEARCH_USAGE)
             return
 
         title_only = False
@@ -390,9 +351,9 @@ class CommandHandler:
             return
         for r in results:
             if r.kind == "note":
-                print(f"  [{r.book_title}/note:{r.category}] {r.chapter_title}")
+                print(f"  [{r.book_title}/note:{r.category}] {r.title}")
             else:
-                print(f"  [{r.book_title}] {r.chapter_title} ({r.created_at[:10]})")
+                print(f"  [{r.book_title}] {r.title} ({r.created_at[:10]})")
             print(f"    {r.snippet}")
             print()
 
@@ -403,13 +364,11 @@ class CommandHandler:
             return
         md = export_book_to_markdown(self.db, self.active_book.id)
         filename = f"{slugify(self.active_book.title)}.md"
-        if os.path.exists(filename):
-            confirm = input(f"'{filename}' exists. Overwrite? (y/n): ").strip().lower()
-            if confirm != "y":
-                filename = input("Enter new filename: ").strip()
-                if not filename:
-                    print("Cancelled.")
-                    return
+        if os.path.exists(filename) and not _confirm(f"'{filename}' exists. Overwrite?"):
+            filename = input("Enter new filename: ").strip()
+            if not filename:
+                print("Cancelled.")
+                return
         with open(filename, "w", encoding="utf-8") as f:
             f.write(md)
         print(f"Exported to {filename}")
@@ -422,11 +381,9 @@ class CommandHandler:
             print("Cancelled.")
             return
         dest = os.path.expanduser(dest)
-        if os.path.exists(dest):
-            confirm = input(f"'{dest}' exists. Overwrite? (y/n): ").strip().lower()
-            if confirm != "y":
-                print("Cancelled.")
-                return
+        if os.path.exists(dest) and not _confirm(f"'{dest}' exists. Overwrite?"):
+            print("Cancelled.")
+            return
         self.db.backup(dest)
         print(f"Backed up to {dest}")
 
@@ -439,10 +396,7 @@ class CommandHandler:
         if not os.path.exists(src):
             print(f"File not found: {src}")
             return
-        confirm = input(
-            "This replaces ALL current data with the backup. Continue? (y/n): "
-        ).strip().lower()
-        if confirm != "y":
+        if not _confirm("This replaces ALL current data with the backup. Continue?"):
             print("Cancelled.")
             return
         self.db.restore(src)

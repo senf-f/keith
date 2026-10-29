@@ -1,20 +1,4 @@
-import os
-import tempfile
-
-import pytest
-
-from keith.db import Database
 from keith.export import export_book_to_markdown, slugify
-
-
-@pytest.fixture
-def db():
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    database = Database(path)
-    yield database
-    database.close()
-    os.unlink(path)
 
 
 def test_slugify():

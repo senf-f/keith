@@ -38,7 +38,7 @@ def test_full_workflow():
     # Search
     results = db.search("madman")
     assert len(results) == 1
-    assert results[0].chapter_title == "The Maniac"
+    assert results[0].title == "The Maniac"
 
     # Export
     md = export_book_to_markdown(db, handler.active_book.id)

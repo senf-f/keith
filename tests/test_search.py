@@ -1,19 +1,4 @@
-import os
-import tempfile
-
 import pytest
-
-from keith.db import Database, SearchResult
-
-
-@pytest.fixture
-def db():
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    database = Database(path)
-    yield database
-    database.close()
-    os.unlink(path)
 
 
 @pytest.fixture
@@ -29,13 +14,13 @@ def populated_db(db):
 def test_search_by_content(populated_db):
     results = populated_db.search("park")
     assert len(results) == 1
-    assert results[0].chapter_title == "The Two Poets"
+    assert results[0].title == "The Two Poets"
 
 
 def test_search_by_chapter_title(populated_db):
     results = populated_db.search("Gabriel")
     assert len(results) == 1
-    assert results[0].chapter_title == "The Secret of Gabriel Syme"
+    assert results[0].title == "The Secret of Gabriel Syme"
 
 
 def test_search_by_book_title(populated_db):
@@ -51,7 +36,7 @@ def test_search_no_results(populated_db):
 def test_search_title_only(populated_db):
     results = populated_db.search("Syme", title_only=True)
     assert len(results) == 1
-    assert results[0].chapter_title == "The Secret of Gabriel Syme"
+    assert results[0].title == "The Secret of Gabriel Syme"
 
 
 def test_search_filter_by_book(populated_db):
@@ -76,7 +61,7 @@ def test_search_finds_notes(populated_db):
     assert len(results) == 1
     assert results[0].kind == "note"
     assert results[0].category == "character"
-    assert results[0].chapter_title == "Gandalf the grey wizard"
+    assert results[0].title == "Gandalf the grey wizard"
 
 
 def test_search_marks_chapters_as_chapter_kind(populated_db):

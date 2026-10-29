@@ -1,13 +1,28 @@
 from dataclasses import dataclass
 
 
+DRAFT = "draft"
+PUBLISHED = "published"
+
+
+def note_label(content: str) -> str:
+    """A note's first non-blank line, shortened to fit a list."""
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped:
+            if len(stripped) > 60:
+                return stripped[:57] + "..."
+            return stripped
+    return "(empty)"
+
+
 @dataclass
 class Book:
     id: int
     title: str
     created_at: str
     updated_at: str
-    status: str = "draft"
+    status: str = DRAFT
 
 
 @dataclass
@@ -32,21 +47,16 @@ class Note:
 
     @property
     def label(self) -> str:
-        for line in self.content.splitlines():
-            stripped = line.strip()
-            if stripped:
-                if len(stripped) > 60:
-                    return stripped[:57] + "..."
-                return stripped
-        return "(empty)"
+        return note_label(self.content)
 
 
 @dataclass
 class SearchResult:
+    """A chapter or note that matched; item_id and title belong to whichever it is."""
     book_id: int
     book_title: str
-    chapter_id: int
-    chapter_title: str
+    item_id: int
+    title: str
     snippet: str
     created_at: str
     kind: str = "chapter"

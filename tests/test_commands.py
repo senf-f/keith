@@ -1,21 +1,9 @@
 import os
-import tempfile
 from unittest.mock import patch
 
 import pytest
 
 from keith.commands import CommandHandler
-from keith.db import Database
-
-
-@pytest.fixture
-def db():
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    database = Database(path)
-    yield database
-    database.close()
-    os.unlink(path)
 
 
 @pytest.fixture
@@ -456,3 +444,93 @@ def test_publish_refreshes_updated_date(handler, capsys):
     handler.publish()
     assert handler.active_book.status == "published"
     assert handler.active_book.updated_at > "2000-01-01T00:00:00"
+
+
+# -- Pickers (book select, chapter and note selection) --
+
+
+@pytest.fixture
+def two_chapters(handler):
+    book = handler.db.create_book("Novel")
+    handler.active_book = book
+    handler.db.create_chapter(book.id, "Dawn", "Morning text")
+    handler.db.create_chapter(book.id, "Dusk", "Evening text")
+    return book
+
+
+def test_book_select_picks_by_number(handler, capsys):
+    handler.db.create_book("A")
+    handler.db.create_book("B")
+    with patch("builtins.input", return_value="2"):
+        handler.book_select()
+    assert handler.active_book.title == "B"
+    assert "Selected: B" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("choice, message", [("9", "Invalid selection."), ("x", "Invalid input.")])
+def test_pickers_reject_bad_choices(handler, two_chapters, capsys, choice, message):
+    handler.db.create_note(two_chapters.id, "idea", "Twist")
+    for command in (handler.book_select, handler.edit_chapter, handler.show_chapter,
+                    handler.move_chapter, handler.delete_chapter, handler.note_show):
+        with patch("builtins.input", return_value=choice):
+            command()
+        assert message in capsys.readouterr().out
+
+
+def test_show_chapter_prints_content(handler, two_chapters, capsys):
+    with patch("builtins.input", return_value="2"):
+        handler.show_chapter()
+    out = capsys.readouterr().out
+    assert "--- Dusk ---" in out
+    assert "Evening text" in out
+    assert "--- end ---" in out
+
+
+def test_edit_chapter_saves_editor_text(handler, two_chapters, capsys):
+    with patch("builtins.input", return_value="1"):
+        with patch("keith.commands.open_editor", return_value="New dawn"):
+            handler.edit_chapter()
+    assert handler.db.list_chapters(two_chapters.id)[0].content == "New dawn"
+    assert "Updated 'Dawn'." in capsys.readouterr().out
+
+
+def test_edit_chapter_editor_failure_saves_nothing(handler, two_chapters, capsys):
+    with patch("builtins.input", return_value="1"):
+        with patch("keith.commands.open_editor", return_value=None):
+            handler.edit_chapter()
+    assert handler.db.list_chapters(two_chapters.id)[0].content == "Morning text"
+    assert "Editor failed. No changes saved." in capsys.readouterr().out
+
+
+def test_delete_chapter_confirmed(handler, two_chapters, capsys):
+    with patch("builtins.input", side_effect=["1", "y"]):
+        handler.delete_chapter()
+    assert [c.title for c in handler.db.list_chapters(two_chapters.id)] == ["Dusk"]
+
+
+def test_move_chapter_rejects_out_of_range_position(handler, two_chapters, capsys):
+    with patch("builtins.input", side_effect=["1", "3"]):
+        handler.move_chapter()
+    assert "Invalid position." in capsys.readouterr().out
+
+
+def test_add_chapter_editor_failure(handler, two_chapters, capsys):
+    with patch("builtins.input", return_value="Noon"):
+        with patch("keith.commands.open_editor", return_value=None):
+            handler.add_chapter()
+    assert "Editor failed. Chapter not created." in capsys.readouterr().out
+
+
+def test_article_new_empty_body_discarded(handler, capsys):
+    with patch("builtins.input", side_effect=["Essay", "n"]):
+        with patch("keith.commands.open_editor", return_value="  "):
+            handler.article_new()
+    assert handler.db.list_books() == []
+    assert "Discarded." in capsys.readouterr().out
+
+
+def test_empty_title_rejected(handler, two_chapters, capsys):
+    for command in (handler.book_new, handler.article_new, handler.add_chapter):
+        with patch("builtins.input", return_value="  "):
+            command()
+        assert "Title cannot be empty." in capsys.readouterr().out

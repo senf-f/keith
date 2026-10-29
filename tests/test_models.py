@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from keith.models import Book, Chapter, Note, SearchResult
 
 
@@ -71,8 +69,8 @@ def test_search_result_defaults_to_chapter():
     result = SearchResult(
         book_id=1,
         book_title="Book",
-        chapter_id=2,
-        chapter_title="Ch",
+        item_id=2,
+        title="Ch",
         snippet="snip",
         created_at="2026-06-29T10:00:00",
     )
@@ -84,8 +82,8 @@ def test_search_result_note_kind():
     result = SearchResult(
         book_id=1,
         book_title="Book",
-        chapter_id=2,
-        chapter_title="Gandalf",
+        item_id=2,
+        title="Gandalf",
         snippet="snip",
         created_at="2026-06-29T10:00:00",
         kind="note",

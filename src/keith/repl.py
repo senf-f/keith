@@ -1,22 +1,16 @@
-# src/keith/repl.py
+from pathlib import Path
+from typing import Callable
+
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.history import FileHistory
-from pathlib import Path
 
 from keith.commands import CommandHandler
 from keith.db import Database, sync_conflicts
 from keith.tips import WRITING_TIPS
 
 
-COMMANDS = [
-    "book new", "book list", "book select", "book info", "book delete",
-    "article new", "publish", "unpublish",
-    "add chapter", "list chapters", "edit chapter", "show chapter",
-    "move chapter", "delete chapter",
-    "note new", "note list", "note show", "note edit", "note delete",
-    "search", "export", "stats", "tips", "backup", "restore", "help", "exit", "quit",
-]
+EXIT_COMMANDS = ("exit", "quit")
 
 HELP_TEXT = """
   Book commands:
@@ -64,6 +58,58 @@ HELP_TEXT = """
 """.strip()
 
 
+class Commands:
+    """Every REPL command in one place: dispatch and autocomplete both read
+    from here, and a test checks HELP_TEXT mentions each one."""
+
+    def __init__(self, handler: CommandHandler):
+        self.no_args: dict[str, Callable[[], None]] = {
+            "book new": handler.book_new,
+            "book list": handler.book_list,
+            "book select": handler.book_select,
+            "book info": handler.book_info,
+            "book delete": handler.book_delete,
+            "article new": handler.article_new,
+            "publish": handler.publish,
+            "unpublish": handler.unpublish,
+            "add chapter": handler.add_chapter,
+            "list chapters": handler.list_chapters,
+            "edit chapter": handler.edit_chapter,
+            "show chapter": handler.show_chapter,
+            "move chapter": handler.move_chapter,
+            "delete chapter": handler.delete_chapter,
+            "note new": handler.note_new,
+            "note show": handler.note_show,
+            "note edit": handler.note_edit,
+            "note delete": handler.note_delete,
+            "export": handler.export,
+            "stats": handler.stats,
+            "backup": handler.backup,
+            "restore": handler.restore,
+            "tips": lambda: print(WRITING_TIPS),
+            "help": lambda: print(HELP_TEXT),
+        }
+        # These receive whatever follows their name ("" when nothing does).
+        self.with_args: dict[str, Callable[[str], None]] = {
+            "note list": handler.note_list,
+            "search": handler.handle_search,
+        }
+
+    @property
+    def names(self) -> list[str]:
+        return [*self.no_args, *self.with_args, *EXIT_COMMANDS]
+
+    def dispatch(self, text: str) -> None:
+        if text in self.no_args:
+            self.no_args[text]()
+            return
+        for name, action in self.with_args.items():
+            if text == name or text.startswith(name + " "):
+                action(text[len(name):].strip())
+                return
+        print(f"Unknown command: {text}. Type 'help' for available commands.")
+
+
 def _get_prompt(handler: CommandHandler) -> str:
     if handler.active_book:
         return f"keith [{handler.active_book.title}]> "
@@ -72,6 +118,15 @@ def _get_prompt(handler: CommandHandler) -> str:
 
 def run_repl() -> None:
     db = Database()
+    # try/finally so a crash still checkpoints the WAL into the synced .db file.
+    try:
+        _session(db)
+    finally:
+        db.close()
+    print("Goodbye.")
+
+
+def _session(db: Database) -> None:
     handler = CommandHandler(db)
 
     conflicts = sync_conflicts(db.path)
@@ -86,7 +141,8 @@ def run_repl() -> None:
     history_dir.mkdir(exist_ok=True)
     history_file = history_dir / "history"
 
-    completer = WordCompleter(COMMANDS, sentence=True)
+    commands = Commands(handler)
+    completer = WordCompleter(commands.names, sentence=True)
     session: PromptSession = PromptSession(
         history=FileHistory(str(history_file)),
         completer=completer,
@@ -98,71 +154,9 @@ def run_repl() -> None:
         try:
             text = session.prompt(_get_prompt(handler)).strip()
         except (EOFError, KeyboardInterrupt):
-            break
-
+            return
         if not text:
             continue
-
-        if text in ("exit", "quit"):
-            break
-        elif text == "help":
-            print(HELP_TEXT)
-        elif text == "book new":
-            handler.book_new()
-        elif text == "book list":
-            handler.book_list()
-        elif text == "book select":
-            handler.book_select()
-        elif text == "book info":
-            handler.book_info()
-        elif text == "book delete":
-            handler.book_delete()
-        elif text == "article new":
-            handler.article_new()
-        elif text == "publish":
-            handler.publish()
-        elif text == "unpublish":
-            handler.unpublish()
-        elif text == "add chapter":
-            handler.add_chapter()
-        elif text == "list chapters":
-            handler.list_chapters()
-        elif text == "edit chapter":
-            handler.edit_chapter()
-        elif text == "show chapter":
-            handler.show_chapter()
-        elif text == "move chapter":
-            handler.move_chapter()
-        elif text == "delete chapter":
-            handler.delete_chapter()
-        elif text == "note new":
-            handler.note_new()
-        elif text == "note list":
-            handler.note_list("")
-        elif text.startswith("note list "):
-            handler.note_list(text[len("note list "):])
-        elif text == "note show":
-            handler.note_show()
-        elif text == "note edit":
-            handler.note_edit()
-        elif text == "note delete":
-            handler.note_delete()
-        elif text.startswith("search "):
-            handler.handle_search(text[7:])
-        elif text == "search":
-            print("Usage: search [--title] [--book <id>] [--from <date>] [--to <date>] <query>")
-        elif text == "export":
-            handler.export()
-        elif text == "stats":
-            handler.stats()
-        elif text == "tips":
-            print(WRITING_TIPS)
-        elif text == "backup":
-            handler.backup()
-        elif text == "restore":
-            handler.restore()
-        else:
-            print(f"Unknown command: {text}. Type 'help' for available commands.")
-
-    db.close()
-    print("Goodbye.")
+        if text in EXIT_COMMANDS:
+            return
+        commands.dispatch(text)

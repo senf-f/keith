@@ -1,30 +1,15 @@
 import os
 import sqlite3
-import tempfile
 
 import pytest
 
 from keith.db import Database, sync_conflicts
-from keith.models import Book
 
 
 @pytest.fixture
-def tmp_path_factory_db():
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    yield path
-    if os.path.exists(path):
-        os.unlink(path)
-
-
-@pytest.fixture
-def db():
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    database = Database(path)
-    yield database
-    database.close()
-    os.unlink(path)
+def db_file(tmp_path):
+    """A path for a second database file, separate from the `db` fixture's."""
+    return str(tmp_path / "other.db")
 
 
 def test_create_book(db):
@@ -110,8 +95,8 @@ def test_update_chapter(db):
 
 def test_move_chapter(db):
     book = db.create_book("Novel")
-    ch1 = db.create_chapter(book.id, "Ch 1", "")
-    ch2 = db.create_chapter(book.id, "Ch 2", "")
+    db.create_chapter(book.id, "Ch 1", "")
+    db.create_chapter(book.id, "Ch 2", "")
     ch3 = db.create_chapter(book.id, "Ch 3", "")
     db.move_chapter(ch3.id, new_position=1)
     chapters = db.list_chapters(book.id)
@@ -143,20 +128,20 @@ def test_chapter_count(db):
 # -- Backup / restore --
 
 
-def test_backup_creates_file(db, tmp_path_factory_db):
+def test_backup_creates_file(db, db_file):
     db.create_book("Novel")
-    db.backup(tmp_path_factory_db)
-    assert os.path.exists(tmp_path_factory_db)
-    assert os.path.getsize(tmp_path_factory_db) > 0
+    db.backup(db_file)
+    assert os.path.exists(db_file)
+    assert os.path.getsize(db_file) > 0
 
 
-def test_backup_contains_data(db, tmp_path_factory_db):
+def test_backup_contains_data(db, db_file):
     book = db.create_book("Backed Up")
     db.create_chapter(book.id, "Ch 1", "Some content")
     db.create_note(book.id, "idea", "A note")
-    db.backup(tmp_path_factory_db)
+    db.backup(db_file)
 
-    copy = Database(tmp_path_factory_db)
+    copy = Database(db_file)
     books = copy.list_books()
     assert len(books) == 1
     assert books[0].title == "Backed Up"
@@ -169,73 +154,73 @@ def test_backup_contains_data(db, tmp_path_factory_db):
     copy.close()
 
 
-def test_backup_is_consistent_snapshot_not_live_link(db, tmp_path_factory_db):
+def test_backup_is_consistent_snapshot_not_live_link(db, db_file):
     db.create_book("First")
-    db.backup(tmp_path_factory_db)
+    db.backup(db_file)
     db.create_book("Second")
 
-    copy = Database(tmp_path_factory_db)
+    copy = Database(db_file)
     titles = [b.title for b in copy.list_books()]
     assert titles == ["First"]
     copy.close()
 
 
-def test_restore_replaces_data(db, tmp_path_factory_db):
+def test_restore_replaces_data(db, db_file):
     original = db.create_book("Original")
-    db.backup(tmp_path_factory_db)
+    db.backup(db_file)
 
     db.delete_book(original.id)
     db.create_book("Replacement")
     assert [b.title for b in db.list_books()] == ["Replacement"]
 
-    db.restore(tmp_path_factory_db)
+    db.restore(db_file)
     assert [b.title for b in db.list_books()] == ["Original"]
 
 
-def test_restore_search_works_after(db, tmp_path_factory_db):
+def test_restore_search_works_after(db, db_file):
     book = db.create_book("Searchable")
     db.create_chapter(book.id, "Ch 1", "findme keyword here")
-    db.backup(tmp_path_factory_db)
+    db.backup(db_file)
     db.delete_book(book.id)
 
-    db.restore(tmp_path_factory_db)
+    db.restore(db_file)
     results = db.search("findme")
     assert len(results) == 1
     assert results[0].book_title == "Searchable"
 
 
-def test_backup_roundtrip_preserves_chapter_order(db, tmp_path_factory_db):
+def test_backup_roundtrip_preserves_chapter_order(db, db_file):
     book = db.create_book("Novel")
     db.create_chapter(book.id, "Ch 1", "")
     db.create_chapter(book.id, "Ch 2", "")
     db.create_chapter(book.id, "Ch 3", "")
-    db.backup(tmp_path_factory_db)
+    db.backup(db_file)
 
-    copy = Database(tmp_path_factory_db)
+    copy = Database(db_file)
     titles = [c.title for c in copy.list_chapters(book.id)]
     assert titles == ["Ch 1", "Ch 2", "Ch 3"]
     copy.close()
 
 
-def test_keith_db_env_overrides_default_path(tmp_path_factory_db, monkeypatch):
-    monkeypatch.setenv("KEITH_DB", tmp_path_factory_db)
+def test_keith_db_env_overrides_default_path(db_file, monkeypatch):
+    monkeypatch.setenv("KEITH_DB", db_file)
     database = Database()
     database.create_book("Env Book")
     database.close()
 
-    assert os.path.getsize(tmp_path_factory_db) > 0
-    reopened = Database(tmp_path_factory_db)
+    assert os.path.getsize(db_file) > 0
+    reopened = Database(db_file)
     assert [b.title for b in reopened.list_books()] == ["Env Book"]
     reopened.close()
 
 
-def test_close_checkpoints_wal_into_main_db(tmp_path_factory_db):
-    database = Database(tmp_path_factory_db)
+def test_close_checkpoints_wal_into_main_db(db_file):
+    database = Database(db_file)
     database.create_book("Persisted")
     database.close()
     # TRUNCATE checkpoint folds the WAL back in, so the sidecar is empty/absent
     # and the .db alone is safe to file-sync.
-    wal = tmp_path_factory_db + "-wal"
+    wal = db_file + "-wal"
     assert not os.path.exists(wal) or os.path.getsize(wal) == 0
 
 

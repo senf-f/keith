@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from keith.models import Book, Chapter, Note, SearchResult
+from keith.models import Book, Chapter, Note, SearchResult, note_label
 
 
 def _now() -> str:
@@ -46,17 +46,35 @@ def _fts_phrase(query: str) -> str:
     return " ".join('"' + word.replace('"', '""') + '"' for word in query.split())
 
 
-def _date_filter(column: str, date_from: str | None, date_to: str | None) -> tuple[str, list]:
+def _scope(book_id: int | None, date_from: str | None, date_to: str | None) -> tuple[str, list]:
+    """WHERE clauses narrowing a search; the queries alias chapters and notes as `item`."""
+    sql, params = "", []
+    if book_id is not None:
+        sql += " AND item.book_id = ?"
+        params.append(book_id)
     # Compare only as many characters as the user typed, so "--to 2026-04-03"
     # includes the whole of that day rather than stopping at its midnight.
-    sql, params = "", []
     if date_from is not None:
-        sql += f" AND substr({column}, 1, ?) >= ?"
+        sql += " AND substr(item.created_at, 1, ?) >= ?"
         params += [len(date_from), date_from]
     if date_to is not None:
-        sql += f" AND substr({column}, 1, ?) <= ?"
+        sql += " AND substr(item.created_at, 1, ?) <= ?"
         params += [len(date_to), date_to]
     return sql, params
+
+
+# Column lists in dataclass field order, so a row unpacks straight into the model.
+BOOK_COLUMNS = "id, title, created_at, updated_at, status"
+CHAPTER_COLUMNS = "id, book_id, title, content, position, created_at, updated_at"
+NOTE_COLUMNS = "id, book_id, category, content, created_at, updated_at"
+
+# Chapters and notes are mirrored into FTS5 tables, with the book's title copied
+# in so searching for it finds the book's text. Per table: the FTS table, its
+# middle column, and the source column that fills it.
+FTS_MIRRORS = {
+    "chapters": ("fts_chapters", "chapter_title", "title"),
+    "notes": ("fts_notes", "category", "category"),
+}
 
 
 class Database:
@@ -128,71 +146,21 @@ class Database:
             "SELECT name FROM sqlite_master WHERE type='trigger'"
         ).fetchall()}
 
-        if "fts_chapters_insert" not in existing:
-            self.conn.execute("""
-                CREATE TRIGGER fts_chapters_insert AFTER INSERT ON chapters
-                BEGIN
-                    INSERT INTO fts_chapters(rowid, book_title, chapter_title, content)
-                    SELECT NEW.id,
-                           (SELECT title FROM books WHERE id = NEW.book_id),
-                           NEW.title,
-                           NEW.content;
-                END;
-            """)
-
-        if "fts_chapters_update" not in existing:
-            self.conn.execute("""
-                CREATE TRIGGER fts_chapters_update AFTER UPDATE ON chapters
-                BEGIN
-                    DELETE FROM fts_chapters WHERE rowid = OLD.id;
-                    INSERT INTO fts_chapters(rowid, book_title, chapter_title, content)
-                    SELECT NEW.id,
-                           (SELECT title FROM books WHERE id = NEW.book_id),
-                           NEW.title,
-                           NEW.content;
-                END;
-            """)
-
-        if "fts_chapters_delete" not in existing:
-            self.conn.execute("""
-                CREATE TRIGGER fts_chapters_delete AFTER DELETE ON chapters
-                BEGIN
-                    DELETE FROM fts_chapters WHERE rowid = OLD.id;
-                END;
-            """)
-
-        if "fts_notes_insert" not in existing:
-            self.conn.execute("""
-                CREATE TRIGGER fts_notes_insert AFTER INSERT ON notes
-                BEGIN
-                    INSERT INTO fts_notes(rowid, book_title, category, content)
-                    SELECT NEW.id,
-                           (SELECT title FROM books WHERE id = NEW.book_id),
-                           NEW.category,
-                           NEW.content;
-                END;
-            """)
-
-        if "fts_notes_update" not in existing:
-            self.conn.execute("""
-                CREATE TRIGGER fts_notes_update AFTER UPDATE ON notes
-                BEGIN
-                    DELETE FROM fts_notes WHERE rowid = OLD.id;
-                    INSERT INTO fts_notes(rowid, book_title, category, content)
-                    SELECT NEW.id,
-                           (SELECT title FROM books WHERE id = NEW.book_id),
-                           NEW.category,
-                           NEW.content;
-                END;
-            """)
-
-        if "fts_notes_delete" not in existing:
-            self.conn.execute("""
-                CREATE TRIGGER fts_notes_delete AFTER DELETE ON notes
-                BEGIN
-                    DELETE FROM fts_notes WHERE rowid = OLD.id;
-                END;
-            """)
+        for table, (fts, fts_column, source_column) in FTS_MIRRORS.items():
+            insert = (
+                f"INSERT INTO {fts}(rowid, book_title, {fts_column}, content) "
+                f"SELECT NEW.id, (SELECT title FROM books WHERE id = NEW.book_id), "
+                f"NEW.{source_column}, NEW.content;"
+            )
+            delete = f"DELETE FROM {fts} WHERE rowid = OLD.id;"
+            bodies = {"insert": insert, "update": f"{delete} {insert}", "delete": delete}
+            for event, body in bodies.items():
+                name = f"{fts}_{event}"
+                if name not in existing:
+                    self.conn.execute(
+                        f"CREATE TRIGGER {name} AFTER {event.upper()} ON {table} "
+                        f"BEGIN {body} END;"
+                    )
 
     def close(self):
         # Fold the WAL back into the .db so the file is self-contained —
@@ -229,21 +197,14 @@ class Database:
         return Book(id=cursor.lastrowid, title=title, created_at=now, updated_at=now)
 
     def list_books(self) -> list[Book]:
-        rows = self.conn.execute(
-            "SELECT id, title, created_at, updated_at, status FROM books ORDER BY id"
-        ).fetchall()
-        return [Book(id=r[0], title=r[1], created_at=r[2], updated_at=r[3], status=r[4])
-                for r in rows]
+        rows = self.conn.execute(f"SELECT {BOOK_COLUMNS} FROM books ORDER BY id").fetchall()
+        return [Book(*r) for r in rows]
 
     def get_book(self, book_id: int) -> Book | None:
         row = self.conn.execute(
-            "SELECT id, title, created_at, updated_at, status FROM books WHERE id = ?",
-            (book_id,),
+            f"SELECT {BOOK_COLUMNS} FROM books WHERE id = ?", (book_id,),
         ).fetchone()
-        if row is None:
-            return None
-        return Book(id=row[0], title=row[1], created_at=row[2],
-                    updated_at=row[3], status=row[4])
+        return Book(*row) if row else None
 
     def set_status(self, book_id: int, status: str) -> None:
         self.conn.execute(
@@ -278,23 +239,16 @@ class Database:
 
     def list_chapters(self, book_id: int) -> list[Chapter]:
         rows = self.conn.execute(
-            "SELECT id, book_id, title, content, position, created_at, updated_at "
-            "FROM chapters WHERE book_id = ? ORDER BY position",
+            f"SELECT {CHAPTER_COLUMNS} FROM chapters WHERE book_id = ? ORDER BY position",
             (book_id,),
         ).fetchall()
-        return [Chapter(id=r[0], book_id=r[1], title=r[2], content=r[3],
-                        position=r[4], created_at=r[5], updated_at=r[6]) for r in rows]
+        return [Chapter(*r) for r in rows]
 
     def get_chapter(self, chapter_id: int) -> Chapter | None:
         row = self.conn.execute(
-            "SELECT id, book_id, title, content, position, created_at, updated_at "
-            "FROM chapters WHERE id = ?",
-            (chapter_id,),
+            f"SELECT {CHAPTER_COLUMNS} FROM chapters WHERE id = ?", (chapter_id,),
         ).fetchone()
-        if row is None:
-            return None
-        return Chapter(id=row[0], book_id=row[1], title=row[2], content=row[3],
-                       position=row[4], created_at=row[5], updated_at=row[6])
+        return Chapter(*row) if row else None
 
     def update_chapter(self, chapter_id: int, title: str | None = None, content: str | None = None) -> None:
         now = _now()
@@ -370,29 +324,20 @@ class Database:
         )
 
     def list_notes(self, book_id: int, category: str | None = None) -> list[Note]:
-        sql = (
-            "SELECT id, book_id, category, content, created_at, updated_at "
-            "FROM notes WHERE book_id = ?"
-        )
+        sql = f"SELECT {NOTE_COLUMNS} FROM notes WHERE book_id = ?"
         params: list = [book_id]
         if category is not None:
             sql += " AND category = ?"
             params.append(category)
         sql += " ORDER BY id"
         rows = self.conn.execute(sql, params).fetchall()
-        return [Note(id=r[0], book_id=r[1], category=r[2], content=r[3],
-                     created_at=r[4], updated_at=r[5]) for r in rows]
+        return [Note(*r) for r in rows]
 
     def get_note(self, note_id: int) -> Note | None:
         row = self.conn.execute(
-            "SELECT id, book_id, category, content, created_at, updated_at "
-            "FROM notes WHERE id = ?",
-            (note_id,),
+            f"SELECT {NOTE_COLUMNS} FROM notes WHERE id = ?", (note_id,),
         ).fetchone()
-        if row is None:
-            return None
-        return Note(id=row[0], book_id=row[1], category=row[2], content=row[3],
-                    created_at=row[4], updated_at=row[5])
+        return Note(*row) if row else None
 
     def update_note(self, note_id: int, category: str | None = None, content: str | None = None) -> None:
         now = _now()
@@ -421,89 +366,57 @@ class Database:
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> list[SearchResult]:
-        fts_query = _fts_phrase(query)
+        match = _fts_phrase(query)
+        scope = _scope(book_id, date_from, date_to)
         if title_only:
-            fts_query = f"chapter_title : ({fts_query})"
+            return self._search_chapters(f"chapter_title : ({match})", scope)
+        return self._search_chapters(match, scope) + self._search_notes(match, scope)
 
-        sql = """
+    def _search_chapters(self, match: str, scope: tuple[str, list]) -> list[SearchResult]:
+        scope_sql, scope_params = scope
+        rows = self.conn.execute(f"""
             SELECT
-                c.book_id,
+                item.book_id,
                 b.title,
-                c.id,
-                c.title,
+                item.id,
+                item.title,
                 snippet(fts_chapters, 2, '>>>', '<<<', '...', 32),
-                c.created_at
+                item.created_at
             FROM fts_chapters fts
-            JOIN chapters c ON c.id = fts.rowid
-            JOIN books b ON b.id = c.book_id
-            WHERE fts_chapters MATCH ?
-        """
-        params: list = [fts_query]
-
-        if book_id is not None:
-            sql += " AND c.book_id = ?"
-            params.append(book_id)
-        date_sql, date_params = _date_filter("c.created_at", date_from, date_to)
-        sql += date_sql
-        params += date_params
-
-        sql += " ORDER BY rank"
-
-        rows = self.conn.execute(sql, params).fetchall()
-        results = [
+            JOIN chapters item ON item.id = fts.rowid
+            JOIN books b ON b.id = item.book_id
+            WHERE fts_chapters MATCH ? {scope_sql}
+            ORDER BY rank
+        """, [match, *scope_params]).fetchall()
+        return [
             SearchResult(
-                book_id=r[0], book_title=r[1], chapter_id=r[2],
-                chapter_title=r[3], snippet=r[4], created_at=r[5],
-                kind="chapter", category=None,
+                book_id=r[0], book_title=r[1], item_id=r[2], title=r[3],
+                snippet=r[4], created_at=r[5], kind="chapter",
             )
             for r in rows
         ]
 
-        if title_only:
-            return results
-
-        results.extend(self._search_notes(query, book_id, date_from, date_to))
-        return results
-
-    def _search_notes(
-        self,
-        query: str,
-        book_id: int | None,
-        date_from: str | None,
-        date_to: str | None,
-    ) -> list[SearchResult]:
-        sql = """
+    def _search_notes(self, match: str, scope: tuple[str, list]) -> list[SearchResult]:
+        scope_sql, scope_params = scope
+        rows = self.conn.execute(f"""
             SELECT
-                n.book_id,
+                item.book_id,
                 b.title,
-                n.id,
-                n.content,
-                n.category,
+                item.id,
+                item.content,
+                item.category,
                 snippet(fts_notes, 2, '>>>', '<<<', '...', 32),
-                n.created_at
+                item.created_at
             FROM fts_notes fts
-            JOIN notes n ON n.id = fts.rowid
-            JOIN books b ON b.id = n.book_id
-            WHERE fts_notes MATCH ?
-        """
-        params: list = [_fts_phrase(query)]
-
-        if book_id is not None:
-            sql += " AND n.book_id = ?"
-            params.append(book_id)
-        date_sql, date_params = _date_filter("n.created_at", date_from, date_to)
-        sql += date_sql
-        params += date_params
-
-        sql += " ORDER BY rank"
-
-        rows = self.conn.execute(sql, params).fetchall()
+            JOIN notes item ON item.id = fts.rowid
+            JOIN books b ON b.id = item.book_id
+            WHERE fts_notes MATCH ? {scope_sql}
+            ORDER BY rank
+        """, [match, *scope_params]).fetchall()
         return [
             SearchResult(
-                book_id=r[0], book_title=r[1], chapter_id=r[2],
-                chapter_title=Note(r[2], r[0], r[4], r[3], "", "").label,
-                snippet=r[5], created_at=r[6],
-                kind="note", category=r[4],
+                book_id=r[0], book_title=r[1], item_id=r[2], title=note_label(r[3]),
+                snippet=r[5], created_at=r[6], kind="note", category=r[4],
             )
             for r in rows
         ]

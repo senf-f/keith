@@ -1,21 +1,3 @@
-import os
-import tempfile
-
-import pytest
-
-from keith.db import Database
-
-
-@pytest.fixture
-def db():
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    database = Database(path)
-    yield database
-    database.close()
-    os.unlink(path)
-
-
 def test_create_note(db):
     book = db.create_book("Novel")
     note = db.create_note(book.id, "character", "Gandalf\nGrey wizard")

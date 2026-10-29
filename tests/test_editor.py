@@ -1,6 +1,4 @@
 import os
-import sys
-import tempfile
 from unittest.mock import patch
 
 from keith.editor import open_editor, get_editor_command
