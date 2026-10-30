@@ -63,6 +63,8 @@ def _scope(book_id: int | None, date_from: str | None, date_to: str | None) -> t
     return sql, params
 
 
+INBOX_TITLE = "Inbox"
+
 # Column lists in dataclass field order, so a row unpacks straight into the model.
 BOOK_COLUMNS = "id, title, created_at, updated_at, status"
 CHAPTER_COLUMNS = "id, book_id, title, content, position, created_at, updated_at"
@@ -126,6 +128,14 @@ class Database:
                 category,
                 content,
                 content_rowid=id
+            );
+
+            CREATE TABLE IF NOT EXISTS imports (
+                source      TEXT NOT NULL,
+                key         TEXT NOT NULL,
+                note_id     INTEGER,
+                imported_at TEXT NOT NULL,
+                PRIMARY KEY (source, key)
             );
         """)
         self._add_missing_columns()
@@ -310,18 +320,61 @@ class Database:
 
     # -- Note CRUD --
 
-    def create_note(self, book_id: int, category: str, content: str) -> Note:
-        now = _now()
+    def create_note(
+        self, book_id: int, category: str, content: str, created_at: str | None = None,
+    ) -> Note:
+        note = self._insert_note(book_id, category, content, created_at)
+        self.conn.commit()
+        return note
+
+    def _insert_note(
+        self, book_id: int, category: str, content: str, created_at: str | None,
+    ) -> Note:
+        """Insert without committing, so callers can bundle it with other writes."""
+        created = created_at if created_at is not None else _now()
         cursor = self.conn.execute(
             "INSERT INTO notes (book_id, category, content, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?)",
-            (book_id, category, content, now, now),
+            (book_id, category, content, created, created),
         )
-        self.conn.commit()
         return Note(
             id=cursor.lastrowid, book_id=book_id, category=category,
-            content=content, created_at=now, updated_at=now,
+            content=content, created_at=created, updated_at=created,
         )
+
+    def is_imported(self, source: str, key: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM imports WHERE source = ? AND key = ?", (source, key),
+        ).fetchone()
+        return row is not None
+
+    def create_imported_note(
+        self, source: str, key: str, book_id: int, category: str, content: str,
+        created_at: str,
+    ) -> Note:
+        # One transaction: the note and its imports row both persist, or neither.
+        with self.conn:
+            note = self._insert_note(book_id, category, content, created_at)
+            self.conn.execute(
+                "INSERT INTO imports (source, key, note_id, imported_at) VALUES (?, ?, ?, ?)",
+                (source, key, note.id, _now()),
+            )
+        return note
+
+    def move_note(self, note_id: int, book_id: int) -> None:
+        # The fts_notes_update trigger re-reads the book title from NEW.book_id.
+        self.conn.execute(
+            "UPDATE notes SET book_id = ?, updated_at = ? WHERE id = ?",
+            (book_id, _now(), note_id),
+        )
+        self.conn.commit()
+
+    def get_or_create_inbox(self) -> Book:
+        row = self.conn.execute(
+            f"SELECT {BOOK_COLUMNS} FROM books WHERE title = ? ORDER BY id LIMIT 1",
+            (INBOX_TITLE,),
+        ).fetchone()
+        return Book(*row) if row else self.create_book(INBOX_TITLE)
 
     def list_notes(self, book_id: int, category: str | None = None) -> list[Note]:
         sql = f"SELECT {NOTE_COLUMNS} FROM notes WHERE book_id = ?"
