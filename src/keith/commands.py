@@ -5,10 +5,9 @@ from typing import Callable, TypeVar
 from keith.db import Database
 from keith.editor import open_editor
 from keith.export import export_book_to_markdown, slugify
-from keith.models import DRAFT, PUBLISHED, Book, Chapter, Note
+from keith.models import DRAFT, PUBLISHED, VALID_CATEGORIES, Book, Chapter, Note
 
 
-VALID_CATEGORIES = ("idea", "outline", "character", "place", "other")
 SEARCH_USAGE = "Usage: search [--title] [--book <id>] [--from <date>] [--to <date>] <query>"
 
 T = TypeVar("T")

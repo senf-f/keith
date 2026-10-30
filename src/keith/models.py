@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 DRAFT = "draft"
 PUBLISHED = "published"
+VALID_CATEGORIES = ("idea", "outline", "character", "place", "other")
 
 
 def note_label(content: str) -> str:
