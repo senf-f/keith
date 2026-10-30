@@ -534,3 +534,76 @@ def test_empty_title_rejected(handler, two_chapters, capsys):
         with patch("builtins.input", return_value="  "):
             command()
         assert "Title cannot be empty." in capsys.readouterr().out
+
+
+def _clear_capture_env(monkeypatch):
+    for name in ("KEITH_TELEGRAM_TOKEN", "KEITH_TELEGRAM_USER", "KEITH_OBSIDIAN_INBOX"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_pull_runs_configured_sources(handler, capsys, tmp_path, monkeypatch):
+    _clear_capture_env(monkeypatch)
+    (tmp_path / "a.md").write_text("#idea hello", encoding="utf-8")
+    monkeypatch.setenv("KEITH_OBSIDIAN_INBOX", str(tmp_path))
+    handler.active_book = handler.db.create_book("Orthodoxy")
+
+    handler.pull("")
+
+    out = capsys.readouterr().out
+    assert "Telegram: not configured (set KEITH_TELEGRAM_TOKEN)" in out
+    assert "1 note added." in out
+    assert [n.content for n in handler.db.list_notes(handler.active_book.id)] == ["a\nhello"]
+
+
+def test_pull_unknown_source(handler, capsys, monkeypatch):
+    _clear_capture_env(monkeypatch)
+    handler.pull("fax")
+    assert "Unknown source: fax. Choose telegram or obsidian." in capsys.readouterr().out
+
+
+def test_pull_single_source_filters_not_configured(handler, capsys, tmp_path, monkeypatch):
+    _clear_capture_env(monkeypatch)
+    monkeypatch.setenv("KEITH_OBSIDIAN_INBOX", str(tmp_path))
+    handler.pull("Obsidian")
+    out = capsys.readouterr().out
+    assert "Telegram" not in out
+    assert "No new notes." in out
+
+
+def test_non_numeric_telegram_user():
+    from keith.importers import configured_sources
+    sources, missing = configured_sources(
+        {"KEITH_TELEGRAM_TOKEN": "t", "KEITH_TELEGRAM_USER": "me"})
+    assert sources == []
+    assert "Telegram: not configured (KEITH_TELEGRAM_USER must be a number)" in missing
+    assert "Obsidian: not configured (set KEITH_OBSIDIAN_INBOX)" in missing
+
+
+def test_configured_sources_telegram_without_user_and_obsidian(tmp_path):
+    from keith.importers import configured_sources
+    sources, missing = configured_sources(
+        {"KEITH_TELEGRAM_TOKEN": "t", "KEITH_OBSIDIAN_INBOX": str(tmp_path)})
+    assert [type(s).__name__ for s in sources] == ["TelegramSource", "ObsidianSource"]
+    assert missing == []
+
+
+def test_note_move(handler, capsys):
+    a = handler.db.create_book("A")
+    b = handler.db.create_book("B")
+    handler.db.create_note(a.id, "idea", "wander")
+    handler.active_book = a
+    with patch("builtins.input", side_effect=["1", "1"]):
+        handler.note_move()
+    assert "Moved note to 'B'." in capsys.readouterr().out
+    assert handler.db.list_notes(a.id) == []
+    assert len(handler.db.list_notes(b.id)) == 1
+
+
+def test_note_move_without_other_book(handler, capsys):
+    a = handler.db.create_book("A")
+    handler.db.create_note(a.id, "idea", "wander")
+    handler.active_book = a
+    with patch("builtins.input", side_effect=["1"]):
+        handler.note_move()
+    assert "No other book to move it to." in capsys.readouterr().out
+    assert len(handler.db.list_notes(a.id)) == 1

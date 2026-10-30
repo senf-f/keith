@@ -34,3 +34,10 @@ def test_dispatch_rejects_unknown_and_stray_arguments(commands, capsys):
     assert "Unknown command: frobnicate" in capsys.readouterr().out
     commands.dispatch("book new extra")
     assert "Unknown command: book new extra" in capsys.readouterr().out
+
+
+def test_dispatch_pull_passes_source(commands, capsys, monkeypatch):
+    for name in ("KEITH_TELEGRAM_TOKEN", "KEITH_TELEGRAM_USER", "KEITH_OBSIDIAN_INBOX"):
+        monkeypatch.delenv(name, raising=False)
+    commands.dispatch("pull fax")
+    assert "Unknown source: fax" in capsys.readouterr().out

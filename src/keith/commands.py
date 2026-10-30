@@ -5,10 +5,10 @@ from typing import Callable, TypeVar
 from keith.db import Database
 from keith.editor import open_editor
 from keith.export import export_book_to_markdown, slugify
-from keith.models import DRAFT, PUBLISHED, Book, Chapter, Note
+from keith.importers import configured_sources, format_report, run_import
+from keith.models import DRAFT, PUBLISHED, VALID_CATEGORIES, Book, Chapter, Note
 
 
-VALID_CATEGORIES = ("idea", "outline", "character", "place", "other")
 SEARCH_USAGE = "Usage: search [--title] [--book <id>] [--from <date>] [--to <date>] <query>"
 
 T = TypeVar("T")
@@ -288,6 +288,33 @@ class CommandHandler:
             return
         self.db.update_note(note.id, content=content)
         print("Note updated.")
+
+    def note_move(self) -> None:
+        note = self._pick_note("Move which note? (number): ")
+        if note is None:
+            return
+        others = [b for b in self.db.list_books() if b.id != note.book_id]
+        if not others:
+            print("No other book to move it to.")
+            return
+        book = _pick(others, lambda b: b.title, "Move to book number: ")
+        if book is None:
+            return
+        self.db.move_note(note.id, book.id)
+        print(f"Moved note to '{book.title}'.")
+
+    # -- Capture --
+
+    def pull(self, args_str: str) -> None:
+        source = args_str.strip().lower()
+        if source not in ("", "telegram", "obsidian"):
+            print(f"Unknown source: {args_str.strip()}. Choose telegram or obsidian.")
+            return
+        sources, not_configured = configured_sources(os.environ)
+        if source:
+            sources = [s for s in sources if s.name.lower() == source]
+            not_configured = [m for m in not_configured if m.lower().startswith(source)]
+        print(format_report(run_import(self.db, sources, self.active_book), not_configured))
 
     def note_delete(self) -> None:
         note = self._pick_note("Delete which note? (number): ")
