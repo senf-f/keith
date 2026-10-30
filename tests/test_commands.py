@@ -552,7 +552,7 @@ def test_pull_runs_configured_sources(handler, capsys, tmp_path, monkeypatch):
     out = capsys.readouterr().out
     assert "Telegram: not configured (set KEITH_TELEGRAM_TOKEN)" in out
     assert "1 note added." in out
-    assert [n.content for n in handler.db.list_notes(handler.active_book.id)] == ["a\n hello"]
+    assert [n.content for n in handler.db.list_notes(handler.active_book.id)] == ["a\nhello"]
 
 
 def test_pull_unknown_source(handler, capsys, monkeypatch):

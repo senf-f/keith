@@ -1,3 +1,5 @@
+import io
+
 from click.testing import CliRunner
 
 from keith.cli import main
@@ -35,3 +37,15 @@ def test_cli_pull_obsidian(tmp_path, monkeypatch):
     monkeypatch.delenv("KEITH_TELEGRAM_USER", raising=False)
     out = CliRunner().invoke(main, ["pull", "obsidian"]).output
     assert "went to Inbox" in out
+
+
+def test_unencodable_output_is_replaced_not_raised(monkeypatch):
+    from keith.cli import _tolerate_unencodable_output
+
+    out = io.TextIOWrapper(io.BytesIO(), encoding="cp1250")
+    monkeypatch.setattr("sys.stdout", out)
+    monkeypatch.setattr("sys.stderr", out)
+    _tolerate_unencodable_output()
+    out.write("a → b")
+    out.flush()
+    assert out.buffer.getvalue().startswith(b"a ")

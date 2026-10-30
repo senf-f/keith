@@ -21,6 +21,9 @@ BOOKS = [orth, thurs]
      "learn C# and see issue#4 page#intro"),
     ("#todo keep unknown tags #orthodoxy", None, "Orthodoxy", "idea", "#todo keep unknown tags"),
     ("line one #orthodoxy\nline two", None, "Orthodoxy", "idea", "line one\nline two"),
+    ("a\n#idea hello", "Orthodoxy", "Orthodoxy", "idea", "a\nhello"),
+    ("I like it #orthodoxy.", None, "Orthodoxy", "idea", "I like it."),
+    ("#orthodoxy/characters Syme", None, None, "idea", "#orthodoxy/characters Syme"),
 ])
 def test_route(text, active, book, category, out):
     active_book = next((b for b in BOOKS if b.title == active), None)
@@ -39,3 +42,10 @@ def test_category_names_are_reserved():
 def test_tag_matching_two_books_goes_to_inbox():
     a, b = Book(1, "Orthodoxy", "t", "t"), Book(2, "Orthodoxy!", "t", "t")
     assert route("#orthodoxy x", [a, b], None).book is None
+
+
+def test_indentation_and_code_survive_tag_removal():
+    text = "- a\n    - nested #orthodoxy\n\n```\ncode    aligned\n```"
+    r = route(text, BOOKS, None)
+    assert r.book.title == "Orthodoxy"
+    assert r.text == "- a\n    - nested\n\n```\ncode    aligned\n```"

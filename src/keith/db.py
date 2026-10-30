@@ -194,6 +194,8 @@ class Database:
         finally:
             src.close()
         self.conn.commit()
+        # A backup from before a table/column existed lacks it; add it back.
+        self._create_schema()
 
     # -- Book CRUD --
 

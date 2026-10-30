@@ -229,7 +229,7 @@ $env:KEITH_OBSIDIAN_INBOX = "$HOME\Vault\Inbox"
 
 Hashtags in the text choose the book and category:
 
-- A tag is `#` at the start of the text or after whitespace, followed by letters, digits, `_` or `-`, case-insensitive. `C#`, `issue#4` and `page#intro` are not tags.
+- A tag is `#` at the start of the text or after whitespace, followed by letters, digits, `_` or `-`, case-insensitive. `C#`, `issue#4` and `page#intro` are not tags, and neither are nested tags like `#orthodoxy/characters`. Only the tag itself and the blank beside it are removed; the rest of the note keeps its spacing and indentation.
 - **Category:** `#idea`, `#outline`, `#character`, `#place` or `#other`. The first one wins; with none, the category is `idea`. These names are reserved, so a book titled "Outline" can't be addressed as `#outline`.
 - **Book:** a tag matches a book when it is the book's title in lowercase with hyphens between words and punctuation dropped — `#orthodoxy`, `#the-man-who-was-thursday`.
 - Matched tags are removed from the note; any other tag stays in the text.

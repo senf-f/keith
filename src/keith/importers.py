@@ -8,7 +8,8 @@ from keith.export import slugify
 from keith.models import VALID_CATEGORIES, Book, note_label
 
 
-TAG_RE = re.compile(r"(?<!\S)#([\w-]+)")
+# Nested tags (#a/b) are not tags; the lookahead stops backtracking to "#a".
+TAG_RE = re.compile(r"(?<!\S)#([\w-]+)(?![\w/-])")
 
 
 @dataclass
@@ -27,9 +28,26 @@ class Route:
     text: str
 
 
-def _clean(text: str) -> str:
-    text = re.sub(r"[ \t]+", " ", text)
-    return "\n".join(line.rstrip() for line in text.split("\n")).strip()
+def _remove_spans(text: str, spans: list[tuple[int, int]]) -> str:
+    """Cut tag spans out, taking only the blanks that would be left dangling."""
+    cuts: list[list[int]] = []
+    for start, end in spans:
+        if start == 0 or text[start - 1] == "\n":
+            while end < len(text) and text[end] in " \t":
+                end += 1
+        else:
+            while start > 0 and text[start - 1] in " \t":
+                start -= 1
+        if cuts and start <= cuts[-1][1]:
+            cuts[-1][1] = max(cuts[-1][1], end)
+        else:
+            cuts.append([start, end])
+    pieces, last = [], 0
+    for start, end in cuts:
+        pieces.append(text[last:start])
+        last = end
+    pieces.append(text[last:])
+    return "\n".join(line.rstrip() for line in "".join(pieces).split("\n")).strip()
 
 
 def route(text: str, books: list[Book], active_book: Book | None) -> Route:
@@ -63,12 +81,7 @@ def route(text: str, books: list[Book], active_book: Book | None) -> Route:
     if book is None:
         return Route(None, category, text)
 
-    pieces, last = [], 0
-    for start, end in spans:
-        pieces.append(text[last:start])
-        last = end
-    pieces.append(text[last:])
-    return Route(book, category, _clean("".join(pieces)))
+    return Route(book, category, _remove_spans(text, spans))
 
 
 class SourceError(Exception):
@@ -105,6 +118,10 @@ def _import_source(db: Database, source, active_book: Book | None) -> SourceRepo
         fetched = source.fetch()
     except SourceError as exc:
         report.error = str(exc)
+        return report
+    except Exception as exc:
+        # Class name only: the message may carry a bot token.
+        report.error = f"failed ({type(exc).__name__})"
         return report
     report.skipped = dict(fetched.skipped)
     report.problems = list(fetched.problems)
@@ -188,7 +205,7 @@ def configured_sources(env: Mapping[str, str]) -> tuple[list, list[str]]:
     user = env.get("KEITH_TELEGRAM_USER")
     if not token:
         not_configured.append("Telegram: not configured (set KEITH_TELEGRAM_TOKEN)")
-    elif user and not user.strip().isdigit():
+    elif user and not user.strip().isdecimal():
         not_configured.append(
             "Telegram: not configured (KEITH_TELEGRAM_USER must be a number)")
     else:

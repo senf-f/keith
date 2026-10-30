@@ -95,3 +95,8 @@ def test_vault_untouched(tmp_path):
     before = (p.stat().st_mtime_ns, sorted(os.listdir(tmp_path)))
     fetch(tmp_path)
     assert (p.stat().st_mtime_ns, sorted(os.listdir(tmp_path))) == before
+
+
+def test_bom_is_stripped_and_title_not_duplicated(tmp_path):
+    (tmp_path / "Ideas.md").write_bytes(b"\xef\xbb\xbf# Ideas\nmore")
+    assert [i.text for i in fetch(tmp_path).items] == ["# Ideas\nmore"]

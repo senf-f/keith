@@ -184,3 +184,21 @@ def test_deleted_imported_note_stays_deleted(db):
     [report] = run_import(db, [src], None)
     assert report.imported == [] and report.already == 1
     assert db.list_notes(book.id) == []
+
+
+def test_unexpected_fetch_error_isolated_and_not_acknowledged(db):
+    class Boom(FakeSource):
+        def fetch(self):
+            raise KeyError("secret-token")
+
+    bad = Boom("Bad", [])
+    report = run_import(db, [bad], None)[0]
+    assert report.error == "failed (KeyError)"
+    assert bad.acked == []
+
+
+def test_superscript_digit_user_not_configured():
+    from keith.importers import configured_sources
+    sources, missing = configured_sources({"KEITH_TELEGRAM_TOKEN": "t", "KEITH_TELEGRAM_USER": "²"})
+    assert all(s.name != "Telegram" for s in sources)
+    assert any("must be a number" in m for m in missing)

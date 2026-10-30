@@ -45,3 +45,16 @@ def test_inbox_created_once_and_reuses_existing(db):
     assert first.title == "Inbox"
     assert db.get_or_create_inbox().id == first.id
     assert [b.title for b in db.list_books()].count("Inbox") == 1
+
+
+def test_restore_of_pre_imports_backup_recreates_table(db, tmp_path):
+    old = tmp_path / "old.db"
+    db.backup(old)
+    conn = sqlite3.connect(old)
+    conn.execute("DROP TABLE imports")
+    conn.commit()
+    conn.close()
+
+    db.restore(old)
+
+    assert not db.is_imported("telegram", "1:1")

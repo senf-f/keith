@@ -59,7 +59,7 @@ class ObsidianSource:
         )
         for path in files:
             try:
-                raw = path.read_bytes().decode("utf-8")
+                raw = path.read_bytes().decode("utf-8-sig")
                 mtime = path.stat().st_mtime
             except UnicodeDecodeError:
                 result.problems.append(f'skipped "{path.name}" — not valid UTF-8')
