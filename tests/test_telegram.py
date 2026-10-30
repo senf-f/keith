@@ -123,11 +123,12 @@ def test_webhook_conflict_message(monkeypatch):
         TelegramSource("SECRET", 1).fetch()
     assert str(info.value) == "Telegram refused: remove the bot's webhook (deleteWebhook) to use pull"
     assert "SECRET" not in str(info.value)
-    assert info.value.__cause__ is None and info.value.__suppress_context__
+    assert info.value.__cause__ is None and info.value.__context__ is None
 
 
 @pytest.mark.parametrize("exc", [
     urllib.error.URLError("https://api.telegram.org/botSECRET/getUpdates failed"),
+    urllib.error.URLError("failed https://api.telegram.org/botSECRET/getUpdates"),
     urllib.error.HTTPError("https://api.telegram.org/botSECRET/x", 500, "Err", {}, io.BytesIO(b"")),
     TimeoutError("botSECRET"),
     ConnectionResetError("botSECRET"),
@@ -140,7 +141,7 @@ def test_token_never_in_errors(monkeypatch, exc):
     with pytest.raises(SourceError) as info:
         source.fetch()
     assert str(info.value) == f"could not reach Telegram ({type(exc).__name__})"
-    assert info.value.__cause__ is None and info.value.__suppress_context__
+    assert info.value.__cause__ is None and info.value.__context__ is None
     assert "SECRET" not in str(info.value)
 
 
@@ -163,7 +164,7 @@ def test_invalid_json_becomes_source_error(monkeypatch):
     with pytest.raises(SourceError) as info:
         TelegramSource("SECRET", 1).fetch()
     assert "SECRET" not in str(info.value)
-    assert info.value.__cause__ is None and info.value.__suppress_context__
+    assert info.value.__cause__ is None and info.value.__context__ is None
 
 
 def test_ok_false_becomes_source_error(monkeypatch):

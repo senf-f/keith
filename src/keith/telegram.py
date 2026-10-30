@@ -23,17 +23,20 @@ def _default_http(token: str) -> Callable[[str, dict], dict]:
             data=json.dumps(params).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
+        error: SourceError | None = None
+        reply = None
         try:
             with urllib.request.urlopen(request, timeout=10) as response:
                 reply = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            if exc.code == 409:
-                raise SourceError(WEBHOOK_MESSAGE) from None
-            raise _unreachable(exc) from None
+            error = SourceError(WEBHOOK_MESSAGE) if exc.code == 409 else _unreachable(exc)
         except (OSError, HTTPException) as exc:
-            raise _unreachable(exc) from None
+            error = _unreachable(exc)
         except ValueError:
-            raise SourceError("Telegram sent an unreadable reply") from None
+            error = SourceError("Telegram sent an unreadable reply")
+        if error is not None:
+            # Raised outside the except blocks so no token-bearing exception is left in __context__.
+            raise error
         if not isinstance(reply, dict):
             raise SourceError("Telegram sent an unreadable reply")
         if not reply.get("ok"):
