@@ -11,6 +11,7 @@ A CLI tool for writing and organizing books. Named after G.K. Chesterton.
 - **Multiple books** in a single library
 - **Chapter management** with ordering, editing via `$EDITOR`, and display
 - **Notes** per book (ideas, outline, characters, places) — searchable but never exported
+- **Capture import** — pull ideas from a Telegram bot or an Obsidian folder straight into notes
 - **Short-form writing** — blog posts and articles, with draft/published tracking
 - **Full-text search** across all books (titles and content) with date range filters
 - **Markdown export** with table of contents, or plain prose for single-chapter pieces
@@ -72,6 +73,7 @@ Exported to orthodoxy.md
 uv run keith version       # Show version
 uv run keith list          # List all books
 uv run keith export <id>   # Export a book to markdown
+uv run keith pull [source] # Import notes from Telegram / Obsidian
 ```
 
 ### REPL commands
@@ -97,7 +99,10 @@ uv run keith export <id>   # Export a book to markdown
 | `note list <category>` | List notes in one category |
 | `note show` | Display a note |
 | `note edit` | Edit a note in `$EDITOR` |
+| `note move` | Move a note to another book |
 | `note delete` | Delete a note |
+| `pull` | Import notes from every configured source (Telegram, Obsidian) |
+| `pull <source>` | Import from one source: `telegram` or `obsidian` |
 | `search <query>` | Full-text search across all books |
 | `search --title <query>` | Search titles only |
 | `search --book <id> <query>` | Search within a specific book |
@@ -150,6 +155,144 @@ Fairy tales do not tell children that dragons exist.
 ```
 
 Add a second chapter and the table of contents and chapter headings come back. The tradeoff is that a book you've only written one chapter of also exports in the plain style until you write the next one.
+
+## Capturing ideas
+
+Ideas get jotted on the go. `pull` brings them in from a Telegram bot and an Obsidian inbox folder and files each one as a note — no retyping. Message the bot during the day, run `pull` in the evening, and every idea is already under the right book and category.
+
+Imports are always notes (never chapters), one per message or file, and a one-time copy: editing the original later changes nothing in keith. Settings come from environment variables, like `KEITH_DB`, and are never stored in the database. Set whichever sources you use; a source you haven't set up is just reported as not configured.
+
+```
+keith> pull              # every configured source
+keith> pull telegram     # just one
+keith> pull obsidian
+```
+
+Or from the command line: `uv run keith pull [source]`. There is no active book on the command line, so untagged items go to Inbox (see [Routing](#routing)).
+
+### Telegram setup
+
+1. In Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`, and follow the prompts. It gives you a bot token.
+2. Set `KEITH_TELEGRAM_TOKEN` to that token. **The token is a secret** — anyone who has it controls your bot. Keep it in your shell profile or environment, never in a repository. keith never prints it.
+
+   ```bash
+   export KEITH_TELEGRAM_TOKEN="123456:ABC..."
+   ```
+
+   ```powershell
+   $env:KEITH_TELEGRAM_TOKEN = "123456:ABC..."
+   ```
+
+3. Send your bot a message, then find your numeric Telegram user ID by running `pull` once without `KEITH_TELEGRAM_USER`. keith imports nothing and acknowledges nothing, so no message is lost; it just lists who has written to the bot:
+
+   ```
+   keith> pull telegram
+   Telegram: set KEITH_TELEGRAM_USER to import. Senders waiting:
+     123456789  Anna (2 messages)
+   No new notes.
+   ```
+
+4. Set `KEITH_TELEGRAM_USER` to your ID and `pull` again:
+
+   ```bash
+   export KEITH_TELEGRAM_USER="123456789"
+   ```
+
+   ```powershell
+   $env:KEITH_TELEGRAM_USER = "123456789"
+   ```
+
+Only messages from that ID are imported; messages from anyone else are dropped, and the report counts them. A photo or voice message with a caption imports the caption; a sticker or an uncaptioned photo is skipped ("no text"). Edited messages are ignored. Each note is dated by when you sent the message, so `search --from/--to` works by when the idea was written.
+
+The bot must not have a webhook set — if it does, `pull` says "remove the bot's webhook".
+
+### Obsidian setup
+
+Set `KEITH_OBSIDIAN_INBOX` to a folder (`~` works):
+
+```bash
+export KEITH_OBSIDIAN_INBOX="~/Vault/Inbox"
+```
+
+```powershell
+$env:KEITH_OBSIDIAN_INBOX = "$HOME\Vault\Inbox"
+```
+
+- Only `.md` files directly in that folder are read — subfolders, other file types and `.obsidian/` are ignored. keith never writes to, moves or deletes anything in your vault.
+- The filename becomes the note's first line, unless the file already opens with that line.
+- A leading front-matter block is removed. Its `tags:` field (as `[a, b]` or a `- a` list) is routed as if you had written `#a`; other fields are dropped.
+- `[[links]]` stay as plain text and attachments are not copied.
+- The note is dated by the file's modification time.
+- Empty files are skipped and picked up once you fill them. A file that isn't valid UTF-8 is reported and skipped.
+
+### Routing
+
+Hashtags in the text choose the book and category:
+
+- A tag is `#` at the start of the text or after whitespace, followed by letters, digits, `_` or `-`, case-insensitive. `C#`, `issue#4` and `page#intro` are not tags.
+- **Category:** `#idea`, `#outline`, `#character`, `#place` or `#other`. The first one wins; with none, the category is `idea`. These names are reserved, so a book titled "Outline" can't be addressed as `#outline`.
+- **Book:** a tag matches a book when it is the book's title in lowercase with hyphens between words and punctuation dropped — `#orthodoxy`, `#the-man-who-was-thursday`.
+- Matched tags are removed from the note; any other tag stays in the text.
+- Exactly one book tag files the note under that book. No book tag files it under the active book. With no book tag and no active book — or with two or more different book tags — it goes to Inbox, with all its tags left in the text so nothing is lost.
+
+For example, with books called Orthodoxy and Thursday:
+
+| Text | Book | Category | Note text |
+|---|---|---|---|
+| `#orthodoxy #character Syme is a poet who hates disorder` | Orthodoxy | character | `Syme is a poet who hates disorder` |
+| `the madman has lost everything except his reason #orthodoxy` | Orthodoxy | idea | `the madman has lost everything except his reason` |
+| `maybe a story about a lighthouse keeper` (no active book) | Inbox | idea | unchanged |
+| `#orthodoxy #thursday compare the two villains` | Inbox | idea | unchanged, both tags kept |
+| `Rewrite in C# #other` | active book, or Inbox | other | `Rewrite in C#` |
+
+### Inbox and `note move`
+
+Notes that can't be routed land in a book called **Inbox**, created the first time it's needed. If you already have a book with that exact title, it is reused. Use `note move` to file a note into the right book: it asks which note, then which book.
+
+```
+keith [Inbox]> note move
+Move which note? (number): 1
+Move to book number: 2
+Moved note to 'Orthodoxy'.
+```
+
+(The prompts also list the notes and books to choose from.) Search by the new book's title finds the moved note straight away.
+
+### What `pull` prints
+
+Each source prints one summary line, then one `→ book / category   label` line per imported note, and a final total. A source that isn't set up prints `<Source>: not configured (set <VAR>)`. This is a real run of `pull obsidian` against a folder holding two files:
+
+```
+keith> pull obsidian
+Obsidian: 2 imported
+  → Inbox / idea            Fairy tales
+  → Orthodoxy / character   Syme
+2 notes added. 1 went to Inbox — file them with 'note move'.
+```
+
+With both sources configured it looks like this (illustrative):
+
+```
+keith> pull
+Telegram: 4 imported, 1 skipped (no text)
+  → Orthodoxy / character   Syme is a poet who hates disorder
+  → Orthodoxy / idea        the madman has lost everything except his reason
+  → Inbox / idea            maybe a story about a lighthouse keeper
+  → Thursday / place        Saffron Park
+Obsidian: 1 imported, 2 already imported
+  → Inbox / idea            Dragons and fairy tales
+Obsidian: skipped "draft.md" — not valid UTF-8
+5 notes added. 2 went to Inbox — file them with 'note move'.
+```
+
+Sources run independently, and one bad item doesn't stop the rest, so re-running `pull` after any failure is safe: anything already imported is skipped. A deleted imported note stays deleted.
+
+### Caveats
+
+- **Renaming an Obsidian file re-imports it.** keith remembers files by name, so a renamed file looks new. Editing a file does nothing.
+- **Telegram keeps unfetched bot messages for only 24 hours.** Run `pull` at least daily or older messages are gone.
+- **One pull takes at most 100 Telegram messages.** Run `pull` again for the rest.
+- Machines sharing one `KEITH_DB` never import the same item twice.
 
 ## Data storage
 
