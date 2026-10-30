@@ -154,3 +154,33 @@ def test_format_report_singular_error_and_not_configured():
     assert lines[0] == "Telegram: not configured (set KEITH_TELEGRAM_TOKEN)"
     assert "Obsidian: folder missing" in lines
     assert lines[-1] == "1 note added."
+
+
+def test_acknowledge_error_isolated(db):
+    db.create_book("Orthodoxy")
+    first = FakeSource("First", [item("1", "#orthodoxy hi")])
+
+    def fail(failed_keys):
+        raise SourceError("ack failed")
+
+    first.acknowledge = fail
+    second = FakeSource("Second", [item("2", "#orthodoxy yo")])
+    r1, r2 = run_import(db, [first, second], None)
+    assert len(r1.imported) == 1
+    assert "ack failed" in r1.problems[-1]
+    assert len(r2.imported) == 1
+
+
+def test_untagged_items_create_one_inbox(db):
+    run_import(db, [FakeSource("Fake", [item("1", "a"), item("2", "b")])], None)
+    assert [b.title for b in db.list_books()] == ["Inbox"]
+
+
+def test_deleted_imported_note_stays_deleted(db):
+    book = db.create_book("Orthodoxy")
+    src = FakeSource("Fake", [item("1", "#orthodoxy hi")])
+    run_import(db, [src], None)
+    db.delete_note(db.list_notes(book.id)[0].id)
+    [report] = run_import(db, [src], None)
+    assert report.imported == [] and report.already == 1
+    assert db.list_notes(book.id) == []

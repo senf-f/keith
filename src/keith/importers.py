@@ -130,7 +130,11 @@ def _import_source(db: Database, source, active_book: Book | None) -> SourceRepo
 
     acknowledge = getattr(source, "acknowledge", None)
     if acknowledge is not None:
-        acknowledge(failed_keys)
+        try:
+            acknowledge(failed_keys)
+        except SourceError as exc:
+            # The notes are committed; rerunning pull is safe, so just report it.
+            report.problems.append(str(exc))
     return report
 
 
