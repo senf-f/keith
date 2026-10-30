@@ -1,8 +1,9 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from keith.db import INBOX_TITLE, Database
 from keith.export import slugify
-from keith.models import VALID_CATEGORIES, Book
+from keith.models import VALID_CATEGORIES, Book, note_label
 
 
 TAG_RE = re.compile(r"(?<!\S)#([\w-]+)")
@@ -66,3 +67,103 @@ def route(text: str, books: list[Book], active_book: Book | None) -> Route:
         last = end
     pieces.append(text[last:])
     return Route(book, category, _clean("".join(pieces)))
+
+
+class SourceError(Exception):
+    """A whole source failed; the message is shown to the user verbatim."""
+
+
+@dataclass
+class FetchResult:
+    items: list[RawItem]
+    skipped: dict[str, int] = field(default_factory=dict)
+    problems: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Imported:
+    book_title: str
+    category: str
+    label: str
+
+
+@dataclass
+class SourceReport:
+    name: str
+    imported: list[Imported]
+    already: int
+    skipped: dict[str, int]
+    problems: list[str]
+    error: str | None
+
+
+def _import_source(db: Database, source, active_book: Book | None) -> SourceReport:
+    report = SourceReport(source.name, [], 0, {}, [], None)
+    try:
+        fetched = source.fetch()
+    except SourceError as exc:
+        report.error = str(exc)
+        return report
+    report.skipped = dict(fetched.skipped)
+    report.problems = list(fetched.problems)
+
+    books = db.list_books()
+    failed_keys: set[str] = set()
+    for item in fetched.items:
+        if db.is_imported(item.source, item.key):
+            report.already += 1
+            continue
+        routed = route(item.text, books, active_book)
+        if not routed.text:
+            report.skipped["no text"] = report.skipped.get("no text", 0) + 1
+            continue
+        book = routed.book or db.get_or_create_inbox()
+        try:
+            db.create_imported_note(
+                item.source, item.key, book.id, routed.category, routed.text, item.created_at,
+            )
+        except Exception as exc:
+            report.problems.append(f"{item.key}: {exc}")
+            failed_keys.add(item.key)
+            continue
+        report.imported.append(Imported(book.title, routed.category, note_label(routed.text)))
+
+    acknowledge = getattr(source, "acknowledge", None)
+    if acknowledge is not None:
+        acknowledge(failed_keys)
+    return report
+
+
+def run_import(db: Database, sources: list, active_book: Book | None) -> list[SourceReport]:
+    return [_import_source(db, source, active_book) for source in sources]
+
+
+def format_report(reports: list[SourceReport], not_configured: list[str]) -> str:
+    lines = list(not_configured)
+    targets = [f"{i.book_title} / {i.category}" for r in reports for i in r.imported]
+    width = max(map(len, targets), default=0)
+    total = inbox = 0
+    for r in reports:
+        if r.error is None:
+            summary = f"{r.name}: {len(r.imported)} imported"
+            for reason, count in r.skipped.items():
+                summary += f", {count} skipped ({reason})"
+            if r.already:
+                summary += f", {r.already} already imported"
+            lines.append(summary)
+        for i in r.imported:
+            target = f"{i.book_title} / {i.category}"
+            lines.append(f"  → {target:<{width}}   {i.label}")
+        lines.extend(f"{r.name}: {p}" for p in r.problems)
+        if r.error is not None:
+            lines.append(f"{r.name}: {r.error}")
+        total += len(r.imported)
+        inbox += sum(1 for i in r.imported if i.book_title == INBOX_TITLE)
+    if total == 0:
+        lines.append("No new notes.")
+    else:
+        last = f"{total} note added." if total == 1 else f"{total} notes added."
+        if inbox:
+            last += f" {inbox} went to Inbox — file them with 'note move'."
+        lines.append(last)
+    return "\n".join(lines)
