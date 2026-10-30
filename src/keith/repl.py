@@ -39,6 +39,7 @@ HELP_TEXT = """
     note list <cat>     List notes in one category
     note show           Display a note
     note edit           Edit a note in $EDITOR
+    note move           Move a note to another book
     note delete         Delete a note
 
   Search:
@@ -46,6 +47,9 @@ HELP_TEXT = """
     search --title <query>      Search titles only
     search --book <id> <query>  Search within a book
     search --from <date> --to <date> <query>  Date range filter
+
+  Capture:
+    pull [telegram|obsidian]  Import new notes from capture sources
 
   Other:
     export          Export active book to markdown
@@ -81,6 +85,7 @@ class Commands:
             "note new": handler.note_new,
             "note show": handler.note_show,
             "note edit": handler.note_edit,
+            "note move": handler.note_move,
             "note delete": handler.note_delete,
             "export": handler.export,
             "stats": handler.stats,
@@ -93,6 +98,7 @@ class Commands:
         self.with_args: dict[str, Callable[[str], None]] = {
             "note list": handler.note_list,
             "search": handler.handle_search,
+            "pull": handler.pull,
         }
 
     @property

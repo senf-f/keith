@@ -1,5 +1,7 @@
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from keith.db import INBOX_TITLE, Database
 from keith.export import slugify
@@ -171,3 +173,30 @@ def format_report(reports: list[SourceReport], not_configured: list[str]) -> str
             last += f" {inbox} went to Inbox — file them with 'note move'."
         lines.append(last)
     return "\n".join(lines)
+
+
+def configured_sources(env: Mapping[str, str]) -> tuple[list, list[str]]:
+    """Sources whose settings are present, plus a line for each that is not."""
+    # Imported here: both modules import from this one.
+    from keith.obsidian import ObsidianSource
+    from keith.telegram import TelegramSource
+
+    sources: list = []
+    not_configured: list[str] = []
+
+    token = env.get("KEITH_TELEGRAM_TOKEN")
+    user = env.get("KEITH_TELEGRAM_USER")
+    if not token:
+        not_configured.append("Telegram: not configured (set KEITH_TELEGRAM_TOKEN)")
+    elif user and not user.strip().isdigit():
+        not_configured.append(
+            "Telegram: not configured (KEITH_TELEGRAM_USER must be a number)")
+    else:
+        sources.append(TelegramSource(token, int(user) if user else None))
+
+    inbox = env.get("KEITH_OBSIDIAN_INBOX")
+    if inbox:
+        sources.append(ObsidianSource(Path(inbox).expanduser()))
+    else:
+        not_configured.append("Obsidian: not configured (set KEITH_OBSIDIAN_INBOX)")
+    return sources, not_configured

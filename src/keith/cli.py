@@ -3,7 +3,7 @@ from contextlib import closing
 import click
 
 from keith import __version__
-from keith.commands import format_book_line
+from keith.commands import CommandHandler, format_book_line
 from keith.db import Database
 from keith.export import export_book_to_markdown, slugify
 
@@ -48,3 +48,11 @@ def export(book_id):
     with open(filename, "w", encoding="utf-8") as f:
         f.write(md)
     click.echo(f"Exported to {filename}")
+
+
+@main.command()
+@click.argument("source", required=False)
+def pull(source):
+    """Import new notes from Telegram and Obsidian (SOURCE: telegram or obsidian)."""
+    with closing(Database()) as db:
+        CommandHandler(db).pull(source or "")
